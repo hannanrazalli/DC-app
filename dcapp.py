@@ -7,6 +7,7 @@ from tkcalendar import DateEntry
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from openpyxl.cell.cell import MergedCell 
+from PIL import Image # Diperlukan untuk memaparkan logo
 
 # --- APPEARANCE SETUP ---
 ctk.set_appearance_mode("Light")
@@ -16,6 +17,7 @@ ctk.set_default_color_theme("dark-blue")
 BASE_PATH = r"C:\Users\HP\Documents\[01] Document Control"
 DB_CONFIG = {"dbname": "dcde", "user": "postgres", "password": "1234", "host": "localhost"}
 MASTER_FILE = "Document Control.xlsx"
+LOGO_FILENAME = "LMG Locomotive Logo.jpeg" # Nama fail logo
 
 PROJECTS = ["H10 TRC", "H10 BeraPit", "M10(N)", "N10(N)", "Wheel Press Machine"]
 PROJ_MAP = {"H10 TRC": "H10", "H10 BeraPit": "H10", "M10(N)": "M10", "N10(N)": "N10", "Wheel Press Machine": "WPM"}
@@ -83,6 +85,31 @@ class DCDEApp(ctk.CTk):
             text_color="#BDC3C7"
         )
         self.subtitle_label.pack(side="left", pady=20)
+
+        # --- LOGO SETUP ---
+        try:
+            if os.path.exists(LOGO_FILENAME):
+                # Load imej menggunakan PIL
+                pil_img = Image.open(LOGO_FILENAME)
+                
+                # Kira saiz berdasarkan ketinggian teks header
+                # Font header size 24 lebih kurang 32-35 pixel visual height
+                # Kita set height=40 supaya jelas dan seimbang dalam header 70px
+                target_height = 40
+                aspect_ratio = pil_img.width / pil_img.height
+                target_width = int(target_height * aspect_ratio)
+                
+                # Convert ke CTkImage untuk paparan tajam (HighDPI support)
+                logo_ctk = ctk.CTkImage(light_image=pil_img, 
+                                        dark_image=pil_img, 
+                                        size=(target_width, target_height))
+                
+                self.logo_label = ctk.CTkLabel(self.header_frame, text="", image=logo_ctk)
+                self.logo_label.pack(side="right", padx=30)
+            else:
+                print(f"Info: Logo file '{LOGO_FILENAME}' not found. Skipping logo.")
+        except Exception as e:
+            print(f"Error loading logo: {e}")
 
         # --- 2. MAIN CONTENT CARD ---
         self.content_frame = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=15, border_width=1, border_color="#BDC3C7")
@@ -280,21 +307,15 @@ class DCDEApp(ctk.CTk):
 
         try:
             # --- PRE-CHECK: DUPLICATE IN PROJECT FILE ---
-            # Kita load fail projek SEBELUM menulis ke SQL/Master untuk semak duplicate.
-            
             skip_project_update = False
-            wb_p = None # Placeholder
+            wb_p = None 
             
-            # Hanya semak jika fail wujud
             if os.path.exists(proj_file):
                 sheet_name = self.assembly_v.get()[:31]
-                # Kita load sekarang untuk semakan
                 wb_p = load_workbook(proj_file)
                 
                 if sheet_name in wb_p.sheetnames:
                     ws_p = wb_p[sheet_name]
-                    
-                    # Cari Signature Row (utk hadkan kawasan scan)
                     sig_row = None
                     for r in range(1, ws_p.max_row + 50):
                         found_sig = False
@@ -306,7 +327,6 @@ class DCDEApp(ctk.CTk):
                     
                     if not sig_row: sig_row = max(ws_p.max_row + 2, 4)
 
-                    # SCAN DUPLICATE (Part & Rev Sama)
                     duplicate_found = False
                     for r in range(3, sig_row):
                         existing_part = ws_p.cell(row=r, column=3).value
@@ -317,23 +337,16 @@ class DCDEApp(ctk.CTk):
                                 break
                     
                     if duplicate_found:
-                        # Popup Warning dengan Pilihan
                         response = messagebox.askyesno(
                             "Duplicate Found", 
                             f"Part '{part}' with Revision '{rev}' already exists in the Project File.\n\n"
                             "Do you want to add this entry to the MASTER LIST only?\n"
                             "(Select 'No' to cancel operation)"
                         )
-                        
-                        if response: 
-                            # User pilih YES: Tambah ke Master/SQL, tapi SKIP Project File
-                            skip_project_update = True
+                        if response: skip_project_update = True
                         else:
-                            # User pilih NO: Batalkan semua
                             self.update_status("Operation Cancelled (Duplicate Found).", COLOR_DANGER)
-                            return # STOP HERE
-
-            # Jika sampai sini, maksudnya sama ada tiada duplicate, ATAU user pilih "Add to Master Only".
+                            return 
 
             # 1. SQL INSERT
             try:
@@ -362,17 +375,14 @@ class DCDEApp(ctk.CTk):
             # 3. PROJECT SPECIFIC FILE
             if skip_project_update:
                 self.update_status(f"Success! Added to Master List ONLY (Skipped Project File).", "#27ae60")
-                return # SELESAI (Tanpa update fail projek)
+                return 
 
-            # Jika tidak skip, sambung update fail projek
             sheet_name = self.assembly_v.get()[:31]
             if not os.path.exists(proj_file):
                 messagebox.showerror("Error", f"File {full_name}.xlsx not found!\nPlease ensure the file exists.")
                 return
 
-            # Gunakan wb_p yang dah load tadi (jika ada), atau load baru jika belum
-            if wb_p is None:
-                wb_p = load_workbook(proj_file)
+            if wb_p is None: wb_p = load_workbook(proj_file)
             
             if sheet_name not in wb_p.sheetnames:
                  ws_p = wb_p.create_sheet(sheet_name)
@@ -381,7 +391,6 @@ class DCDEApp(ctk.CTk):
             else:
                 ws_p = wb_p[sheet_name]
 
-            # Signature Logic (Re-scan needed strictly to get variable scope or just reuse logic)
             sig_row = None
             for r in range(1, ws_p.max_row + 50):
                 found_sig = False
@@ -395,17 +404,13 @@ class DCDEApp(ctk.CTk):
                 sig_row = max(ws_p.max_row + 2, 4)
                 ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
 
-            # Override Logic (For updating EXISTING part with NEW revision)
             target_row = None; is_override = False; remarks_to_save = self.remark_v.get()
 
             for r in range(3, sig_row):
                 existing_part = ws_p.cell(row=r, column=3).value
                 if existing_part and str(existing_part).strip().upper() == part:
-                    # Kita dah check 'exact duplicate' kat atas, so kat sini
-                    # kalau jumpa part sama, maksudnya revision mesti beza (Override scenario)
                     target_row = r; is_override = True; remarks_to_save = "Revised"; break
             
-            # New Entry Logic
             if not target_row:
                 last_data_row = 2
                 start_scan = max(2, sig_row - 1)
@@ -427,7 +432,6 @@ class DCDEApp(ctk.CTk):
                 
                 if found_sig_below: ws_p.insert_rows(next_row) 
 
-            # Write Data
             if not is_override:
                 if target_row == 3: sl_no = 1
                 else:
@@ -449,7 +453,6 @@ class DCDEApp(ctk.CTk):
                 cell.alignment = LEFT_ALIGN if col in [2, 3] else CENTER_ALIGN
                 cell.border = THIN_BORDER
             
-            # Highlights
             new_sig_row = None
             for r in range(1, ws_p.max_row + 10):
                 for c in range(1, 6):
@@ -463,18 +466,14 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 parsed_date = None
-                
-                if isinstance(d_val, datetime):
-                    parsed_date = d_val.date()
-                elif isinstance(d_val, date):
-                    parsed_date = d_val
+                if isinstance(d_val, datetime): parsed_date = d_val.date()
+                elif isinstance(d_val, date): parsed_date = d_val
                 elif d_val:
                     d_str = str(d_val).strip()
                     try: parsed_date = datetime.strptime(d_str, '%d/%m/%Y').date()
                     except ValueError:
                         try: parsed_date = datetime.strptime(d_str, '%Y-%m-%d').date()
                         except ValueError: pass
-                
                 if parsed_date: dates_objects.append(parsed_date)
             
             latest_date_obj = max(dates_objects) if dates_objects else None
@@ -482,11 +481,8 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 current_date_obj = None
-                
-                if isinstance(d_val, datetime):
-                    current_date_obj = d_val.date()
-                elif isinstance(d_val, date):
-                    current_date_obj = d_val
+                if isinstance(d_val, datetime): current_date_obj = d_val.date()
+                elif isinstance(d_val, date): current_date_obj = d_val
                 elif d_val:
                      d_str = str(d_val).strip()
                      try: current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
