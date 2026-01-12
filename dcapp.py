@@ -2,16 +2,15 @@ import customtkinter as ctk
 import psycopg2
 import os
 from tkinter import messagebox
-from datetime import date, datetime  # Tambah datetime untuk parsing
+from datetime import date, datetime
 from tkcalendar import DateEntry
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-# Import MergedCell untuk elak error "read-only"
 from openpyxl.cell.cell import MergedCell 
 
-# --- APPEARANCE ---
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+# --- APPEARANCE SETUP ---
+ctk.set_appearance_mode("Light")
+ctk.set_default_color_theme("dark-blue")
 
 # --- CONFIGURATION ---
 BASE_PATH = r"C:\Users\HP\Documents\[01] Document Control"
@@ -23,10 +22,23 @@ PROJ_MAP = {"H10 TRC": "H10", "H10 BeraPit": "H10", "M10(N)": "M10", "N10(N)": "
 ASSEMBLIES = ["Bogie", "Underframe", "Cabin", "Engine Hood", "Radiator Hood", "Muffler", "Gear Case", "Water Expansion Tank", "Battery Box", "Fuel Tank", "Sand Box"]
 ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno"]
 REMARKS_LIST = ["New", "Revised", "-"]
-
 MASTER_HEADERS = ["Project", "Country", "Batch", "Main Assembly", "Drawing Name", "Part Number", "Revision", "Total Sheets", "Engineer", "Date Approved", "Remarks"]
 
-# Styles
+# --- COLORS & FONTS ---
+COLOR_PRIMARY = "#2C3E50"    # Dark Slate Blue (Header)
+COLOR_ACCENT = "#3498DB"     # Bright Blue (Highlights)
+COLOR_SUCCESS = "#27AE60"    # Emerald Green (Submit)
+COLOR_DANGER = "#C0392B"     # Red (Clear)
+COLOR_BG = "#ECF0F1"         # Light Grey (Background)
+COLOR_CARD = "#FFFFFF"       # White (Card Background)
+COLOR_TEXT = "#34495E"       # Dark Grey (Text)
+
+FONT_HEADER = ("Segoe UI", 24, "bold")
+FONT_SECTION = ("Segoe UI", 16, "bold")
+FONT_LABEL = ("Segoe UI", 12, "bold")
+FONT_INPUT = ("Segoe UI", 13)
+
+# Excel Styles
 CREAM_YELLOW = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
 NO_FILL = PatternFill(fill_type=None)
 CENTER_ALIGN = Alignment(horizontal='center', vertical='center')
@@ -37,86 +49,181 @@ class DCDEApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("DCDE Engineering Data Entry System")
-        self.geometry("1100x820")
-        self.configure(fg_color="#f5f6f7")
-        self.grid_columnconfigure((1, 3), weight=1)
+        
+        # --- ADJUSTED DIMENSIONS FOR COMPACT & FULL LOOK ---
+        # 980x760 is ideal for most laptop screens (usually 1366x768)
+        # Prevents cropping at the bottom while keeping width compact.
+        self.geometry("980x760")
+        self.minsize(900, 720) 
+        
+        self.configure(fg_color=COLOR_BG)
+        
+        # Grid layout for the main window
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1) # Content area expands
+        
         self.setup_ui()
 
     def setup_ui(self):
-        # Row 0
-        self.add_label("Project:", 0, 0)
+        # --- 1. HEADER SECTION ---
+        self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=70) # Slightly shorter header
+        self.header_frame.grid(row=0, column=0, sticky="ew")
+        self.header_frame.grid_propagate(False)
+
+        self.title_label = ctk.CTkLabel(
+            self.header_frame, 
+            text="ENGINEERING DOCUMENT CONTROL", 
+            font=FONT_HEADER, 
+            text_color="white"
+        )
+        self.title_label.pack(side="left", padx=25, pady=15)
+        
+        self.subtitle_label = ctk.CTkLabel(
+            self.header_frame, 
+            text="|  Data Entry System", 
+            font=("Segoe UI", 14), 
+            text_color="#BDC3C7"
+        )
+        self.subtitle_label.pack(side="left", pady=20)
+
+        # --- 2. MAIN CONTENT CARD ---
+        # Reduced padding (20) to make it look "fuller" inside the window
+        self.content_frame = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=15, border_width=1, border_color="#BDC3C7")
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
+        self.content_frame.grid_columnconfigure((0, 1), weight=1) # Two columns
+
+        # --- SECTION: PROJECT DETAILS ---
+        self.create_section_header("1. PROJECT DETAILS", row=0)
+
+        # Project Dropdown
+        self.add_input_field(label="Project Name", row=1, col=0)
         self.proj_v = ctk.StringVar(value=PROJECTS[0])
-        self.proj_drop = ctk.CTkOptionMenu(self, values=PROJECTS, variable=self.proj_v, command=self.update_logic, fg_color="#1f538d")
-        self.proj_drop.grid(row=0, column=1, padx=(10, 30), pady=15, sticky="ew")
+        self.proj_drop = ctk.CTkOptionMenu(self.content_frame, values=PROJECTS, variable=self.proj_v, command=self.update_logic, 
+                                           fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+        self.proj_drop.grid(row=2, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        self.add_label("Batch (-/N/R):", 0, 2)
-        self.batch_ent = ctk.CTkEntry(self)
-        self.batch_ent.grid(row=0, column=3, padx=(10, 30), pady=15, sticky="ew")
+        # Batch Input
+        self.add_input_field(label="Batch Code (-/N/R)", row=1, col=1)
+        self.batch_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. N")
+        self.batch_ent.grid(row=2, column=1, padx=20, pady=(5, 15), sticky="ew")
 
-        # Row 1
-        self.add_label("Main Assembly:", 1, 0)
+        # --- SECTION: TECHNICAL DATA ---
+        self.create_section_header("2. DRAWING & TECHNICAL INFORMATION", row=3)
+
+        # Main Assembly
+        self.add_input_field(label="Main Assembly", row=4, col=0)
         self.assembly_v = ctk.StringVar(value=ASSEMBLIES[0])
-        self.assembly_drop = ctk.CTkOptionMenu(self, values=ASSEMBLIES, variable=self.assembly_v, fg_color="#1f538d")
-        self.assembly_drop.grid(row=1, column=1, padx=(10, 30), pady=15, sticky="ew")
+        self.assembly_drop = ctk.CTkOptionMenu(self.content_frame, values=ASSEMBLIES, variable=self.assembly_v, 
+                                               fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+        self.assembly_drop.grid(row=5, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        self.add_label("Drawing Name:", 1, 2)
-        self.draw_ent = ctk.CTkEntry(self)
-        self.draw_ent.grid(row=1, column=3, padx=(10, 30), pady=15, sticky="ew")
+        # Drawing Name
+        self.add_input_field(label="Drawing Name", row=4, col=1)
+        self.draw_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="Full drawing title")
+        self.draw_ent.grid(row=5, column=1, padx=20, pady=(5, 10), sticky="ew")
         self.draw_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.draw_ent))
 
-        # Row 2
-        self.add_label("Part Number:", 2, 0)
-        self.part_ent = ctk.CTkEntry(self)
-        self.part_ent.grid(row=2, column=1, padx=(10, 30), pady=15, sticky="ew")
+        # Part Number
+        self.add_input_field(label="Part Number", row=6, col=0)
+        self.part_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. H10-100-001")
+        self.part_ent.grid(row=7, column=0, padx=20, pady=(5, 10), sticky="ew")
         self.part_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.part_ent))
 
-        self.add_label("Revision:", 2, 2)
-        self.rev_ent = ctk.CTkEntry(self)
-        self.rev_ent.grid(row=2, column=3, padx=(10, 30), pady=15, sticky="ew")
+        # Revision & Total Sheets (Side by Side in Column 1)
+        self.sub_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        self.sub_frame.grid(row=6, column=1, rowspan=2, padx=20, pady=0, sticky="ew")
+        self.sub_frame.grid_columnconfigure((0, 1), weight=1)
+
+        # Rev
+        ctk.CTkLabel(self.sub_frame, text="Revision", font=FONT_LABEL, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="w")
+        self.rev_ent = ctk.CTkEntry(self.sub_frame, font=FONT_INPUT, height=32, placeholder_text="0")
+        self.rev_ent.grid(row=1, column=0, padx=(0, 10), pady=(5, 10), sticky="ew")
         self.rev_ent.bind("<KeyRelease>", self.auto_remark_logic)
 
-        # Row 3
-        self.add_label("Total Sheets:", 3, 0)
-        self.total_ent = ctk.CTkEntry(self)
-        self.total_ent.grid(row=3, column=1, padx=(10, 30), pady=15, sticky="ew")
+        # Total Sheets
+        ctk.CTkLabel(self.sub_frame, text="Total Sheets", font=FONT_LABEL, text_color=COLOR_TEXT).grid(row=0, column=1, sticky="w")
+        self.total_ent = ctk.CTkEntry(self.sub_frame, font=FONT_INPUT, height=32, placeholder_text="1")
+        self.total_ent.grid(row=1, column=1, padx=(10, 0), pady=(5, 10), sticky="ew")
 
-        self.add_label("Engineer:", 3, 2)
+        # --- SECTION: APPROVAL ---
+        self.create_section_header("3. APPROVAL & STATUS", row=8)
+
+        # Engineer
+        self.add_input_field(label="Responsible Engineer", row=9, col=0)
         self.eng_v = ctk.StringVar(value=ENGINEER_LIST[0])
-        self.eng_drop = ctk.CTkOptionMenu(self, values=ENGINEER_LIST, variable=self.eng_v, fg_color="#1f538d")
-        self.eng_drop.grid(row=3, column=3, padx=(10, 30), pady=15, sticky="ew")
+        self.eng_drop = ctk.CTkOptionMenu(self.content_frame, values=ENGINEER_LIST, variable=self.eng_v, 
+                                          fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+        self.eng_drop.grid(row=10, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        # Row 4
-        self.add_label("Remarks:", 4, 0)
+        # Date Approved
+        self.add_input_field(label="Date Approved", row=9, col=1)
+        self.date_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        self.date_frame.grid(row=10, column=1, padx=20, pady=(5, 10), sticky="w")
+        
+        self.date_picker = DateEntry(self.date_frame, width=20, background=COLOR_PRIMARY, foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd', font=("Arial", 11))
+        self.date_picker.pack(side="left", padx=(0, 15), ipady=3)
+        
+        self.btn_today = ctk.CTkButton(self.date_frame, text="Set Today", width=100, height=30, fg_color="#95a5a6", hover_color="#7f8c8d", command=self.set_today)
+        self.btn_today.pack(side="left")
+
+        # Remarks
+        self.add_input_field(label="Remarks", row=11, col=0)
         self.remark_v = ctk.StringVar(value="New")
-        self.remark_drop = ctk.CTkOptionMenu(self, values=REMARKS_LIST, variable=self.remark_v, fg_color="#1f538d")
-        self.remark_drop.grid(row=4, column=1, padx=(10, 30), pady=15, sticky="ew")
+        self.remark_drop = ctk.CTkOptionMenu(self.content_frame, values=REMARKS_LIST, variable=self.remark_v, 
+                                             fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+        self.remark_drop.grid(row=12, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        self.add_label("Date Approved:", 4, 2)
-        self.date_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.date_frame.grid(row=4, column=3, padx=(10, 30), pady=15, sticky="w")
-        self.date_picker = DateEntry(self.date_frame, width=15, background='#1f538d', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
-        self.date_picker.pack(side="left", padx=(0, 10))
-        ctk.CTkButton(self.date_frame, text="Today", width=70, command=self.set_today, fg_color="#5d6d7e").pack(side="left")
+        # --- 3. ACTION BUTTONS ---
+        self.btn_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        self.btn_frame.grid(row=13, column=0, columnspan=2, pady=(20, 20), padx=20, sticky="ew")
+        self.btn_frame.grid_columnconfigure((0, 1), weight=1)
 
-        # Buttons
-        self.btn_submit = ctk.CTkButton(self, text="SUBMIT DATA", fg_color="#28a745", hover_color="#218838", height=65, font=("Arial", 16, "bold"), command=self.submit)
-        self.btn_submit.grid(row=6, column=0, columnspan=2, padx=30, pady=40, sticky="ew")
+        self.btn_submit = ctk.CTkButton(
+            self.btn_frame, 
+            text="SUBMIT DATA", 
+            fg_color=COLOR_SUCCESS, 
+            hover_color="#219150", 
+            height=50, 
+            corner_radius=8,
+            font=("Segoe UI", 15, "bold"), 
+            command=self.submit
+        )
+        self.btn_submit.grid(row=0, column=0, padx=(0, 10), sticky="ew")
 
-        self.btn_clear = ctk.CTkButton(self, text="CLEAR ALL", fg_color="#dc3545", hover_color="#c82333", height=65, font=("Arial", 16, "bold"), command=self.clear_all)
-        self.btn_clear.grid(row=6, column=2, columnspan=2, padx=30, pady=40, sticky="ew")
+        self.btn_clear = ctk.CTkButton(
+            self.btn_frame, 
+            text="CLEAR FORM", 
+            fg_color=COLOR_DANGER, 
+            hover_color="#A93226", 
+            height=50, 
+            corner_radius=8,
+            font=("Segoe UI", 15, "bold"), 
+            command=self.clear_all
+        )
+        self.btn_clear.grid(row=0, column=1, padx=(10, 0), sticky="ew")
 
-        # Status Bar
-        self.status_bar = ctk.CTkFrame(self, height=40, fg_color="#ebedef", border_width=1, border_color="#abb2b9")
-        self.status_bar.grid(row=7, column=0, columnspan=4, sticky="ew", padx=20, pady=(0, 20))
-        self.status_label = ctk.CTkLabel(self.status_bar, text="Ready", font=("Arial", 13, "bold"))
-        self.status_label.pack(expand=True)
+        # --- 4. STATUS BAR ---
+        self.status_bar = ctk.CTkFrame(self, height=30, fg_color="#BDC3C7", corner_radius=0)
+        self.status_bar.grid(row=2, column=0, sticky="ew")
+        self.status_label = ctk.CTkLabel(self.status_bar, text="System Ready", font=("Consolas", 11), text_color="#2C3E50")
+        self.status_label.pack(side="left", padx=20)
 
-    def add_label(self, text, r, c):
-        ctk.CTkLabel(self, text=text, font=("Arial", 12, "bold"), text_color="#2e4053").grid(row=r, column=c, padx=(30, 0), pady=15, sticky="w")
+    # --- UI HELPER FUNCTIONS ---
+    def create_section_header(self, text, row):
+        label = ctk.CTkLabel(self.content_frame, text=text, font=FONT_SECTION, text_color=COLOR_PRIMARY, anchor="w")
+        label.grid(row=row, column=0, columnspan=2, padx=20, pady=(15, 5), sticky="w")
+        
+        # Divider Line
+        line = ctk.CTkFrame(self.content_frame, height=2, fg_color="#E0E0E0")
+        line.grid(row=row+1, column=0, columnspan=2, padx=20, pady=(0, 10), sticky="ew")
 
-    def update_status(self, message, color="#2e4053"):
-        self.status_label.configure(text=message, text_color=color)
+    def add_input_field(self, label, row, col):
+        ctk.CTkLabel(self.content_frame, text=label, font=FONT_LABEL, text_color=COLOR_TEXT).grid(row=row, column=col, padx=20, pady=(5, 0), sticky="w")
 
+    def update_status(self, message, color=COLOR_TEXT):
+        self.status_label.configure(text=f"STATUS: {message}", text_color=color)
+
+    # --- LOGIC FUNCTIONS (UNCHANGED) ---
     def to_uppercase(self, event, widget):
         ignored = ["Control_L", "Control_R", "Shift_L", "Shift_R", "Caps_Lock", "Left", "Right", "Up", "Down", "Home", "End"]
         if event.keysym in ignored or (event.state & 0x0004): return
@@ -143,7 +250,7 @@ class DCDEApp(ctk.CTk):
         for w in [self.batch_ent, self.draw_ent, self.part_ent, self.rev_ent, self.total_ent]: w.delete(0, 'end')
 
     def submit(self):
-        # 1. AMBIL INPUT UI
+        # 1. GET UI INPUT
         full_name = self.proj_v.get()
         short_proj = PROJ_MAP.get(full_name)
         proj_file = os.path.join(BASE_PATH, f"{full_name}.xlsx")
@@ -154,32 +261,28 @@ class DCDEApp(ctk.CTk):
         rev_str = self.rev_ent.get()
         total_str = self.total_ent.get()
         
-        # --- DATE FORMAT LOGIC ---
-        dt_obj = self.date_picker.get_date() # Objek Date Asli
-        dt_sql = dt_obj.strftime('%Y-%m-%d') # String untuk SQL (Standard)
+        dt_obj = self.date_picker.get_date()
+        dt_sql = dt_obj.strftime('%Y-%m-%d')
         
-        # Validation Mudah
+        # Validation
         if not all([draw, part, rev_str, total_str]):
-            self.update_status("Error: Please fill in mandatory fields (Drawing, Part, Rev, Total)!", "#c0392b")
+            self.update_status("Error: Please fill in mandatory fields (Drawing, Part, Rev, Total)!", COLOR_DANGER)
+            messagebox.showwarning("Missing Data", "Please fill in all mandatory fields.")
             return
         
         try:
             rev = int(rev_str)
             total = int(total_str)
         except ValueError:
-             self.update_status("Error: Revision and Total Sheets must be numbers!", "#c0392b")
+             self.update_status("Error: Revision and Total Sheets must be numbers!", COLOR_DANGER)
              return
 
-        # Data for SQL (String)
+        # Data Payloads
         sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", self.batch_ent.get(), self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
-        
-        # Data for Excel (Object Date) - Kita hantar object date, bukan string
         excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", self.batch_ent.get(), self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
         try:
-            # ---------------------------------------------------------
             # 1. SQL INSERT
-            # ---------------------------------------------------------
             try:
                 conn = psycopg2.connect(**DB_CONFIG)
                 cur = conn.cursor()
@@ -188,44 +291,28 @@ class DCDEApp(ctk.CTk):
             except Exception as db_err:
                 print(f"Database Error (Skipped): {db_err}")
 
-            # ---------------------------------------------------------
             # 2. DOCUMENT CONTROL (MASTER)
-            # ---------------------------------------------------------
             if not os.path.exists(master_file_path):
                 wb_m = Workbook(); ws_m = wb_m.active; ws_m.title = "MasterList"; ws_m.append(MASTER_HEADERS); wb_m.save(master_file_path)
             
             wb_m = load_workbook(master_file_path); ws_m = wb_m.active
             ws_m.append(excel_master_data)
             
-            # --- APPLY STYLE FOR MASTER LIST ---
             last_row_m = ws_m.max_row
             for col_idx in range(1, len(excel_master_data) + 1):
                 cell_m = ws_m.cell(row=last_row_m, column=col_idx)
-                
-                # Format Date Column (Col 10)
-                if col_idx == 10:
-                    cell_m.number_format = 'DD/MM/YYYY'
-
-                if col_idx in [4, 5, 6]:
-                    cell_m.alignment = LEFT_ALIGN
-                else:
-                    cell_m.alignment = CENTER_ALIGN
+                if col_idx == 10: cell_m.number_format = 'DD/MM/YYYY'
+                cell_m.alignment = LEFT_ALIGN if col_idx in [4, 5, 6] else CENTER_ALIGN
                 cell_m.border = THIN_BORDER
-            
             wb_m.save(master_file_path)
 
-            # ---------------------------------------------------------
-            # 3. PROJECT SPECIFIC FILE (LOGIK UTAMA)
-            # ---------------------------------------------------------
+            # 3. PROJECT SPECIFIC FILE
             sheet_name = self.assembly_v.get()[:31]
-            
             if not os.path.exists(proj_file):
-                messagebox.showerror("Error", f"File {full_name}.xlsx not found!\nPlease ensure the file exists and headers (Row 1 & 2) are set up.")
+                messagebox.showerror("Error", f"File {full_name}.xlsx not found!\nPlease ensure the file exists.")
                 return
 
             wb_p = load_workbook(proj_file)
-            
-            # Semak Sheet Wujud
             if sheet_name not in wb_p.sheetnames:
                  ws_p = wb_p.create_sheet(sheet_name)
                  ws_p.append(["Sl. No", "Drawing Name", "Part Number", "Revision", "Total Drawings", "Date Approved", "Remarks"])
@@ -233,53 +320,42 @@ class DCDEApp(ctk.CTk):
             else:
                 ws_p = wb_p[sheet_name]
 
-            # --- A. CARI LOKASI SIGNATURE BLOCK ---
+            # Signature Logic
             sig_row = None
             for r in range(1, ws_p.max_row + 50):
                 found_sig = False
                 for c in range(1, 6): 
                     val = ws_p.cell(row=r, column=c).value
                     if val and ("issued by" in str(val).lower() or "drawing issued" in str(val).lower()):
-                        sig_row = r
-                        found_sig = True
-                        break
-                if found_sig:
-                    break
+                        sig_row = r; found_sig = True; break
+                if found_sig: break
             
             if not sig_row:
                 sig_row = max(ws_p.max_row + 2, 4)
                 ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
 
-            # --- B. SCAN DATA UNTUK OVERRIDE ---
-            target_row = None
-            is_override = False
-            remarks_to_save = self.remark_v.get()
+            # Override Logic
+            target_row = None; is_override = False; remarks_to_save = self.remark_v.get()
 
             for r in range(3, sig_row):
                 existing_part = ws_p.cell(row=r, column=3).value
                 if existing_part and str(existing_part).strip().upper() == part:
                     existing_rev = ws_p.cell(row=r, column=4).value
                     if str(existing_rev) == str(rev):
-                        messagebox.showerror("Data Duplication", f"Part '{part}' with Revision '{rev}' already exists at row {r}!\nPlease check again.")
+                        messagebox.showerror("Duplicate", f"Part '{part}' Rev '{rev}' already exists at row {r}!")
                         return 
                     else:
-                        target_row = r
-                        is_override = True
-                        remarks_to_save = "Revised"
-                        break
+                        target_row = r; is_override = True; remarks_to_save = "Revised"; break
             
-            # --- C. JIKA TIADA MATCH (DATA BARU) ---
+            # New Entry Logic
             if not target_row:
                 last_data_row = 2
-                start_scan = sig_row - 1
-                if start_scan < 2: start_scan = 2
-
+                start_scan = max(2, sig_row - 1)
                 for r in range(start_scan, 2, -1):
                     val_draw = ws_p.cell(row=r, column=2).value
                     val_part = ws_p.cell(row=r, column=3).value
                     if (val_draw and str(val_draw).strip()) or (val_part and str(val_part).strip()):
-                        last_data_row = r
-                        break
+                        last_data_row = r; break
                 
                 target_row = last_data_row + 1
                 ws_p.insert_rows(target_row)
@@ -289,100 +365,61 @@ class DCDEApp(ctk.CTk):
                 for c in range(1, 6):
                     val_below = ws_p.cell(row=next_row, column=c).value
                     if val_below and "issued by" in str(val_below).lower():
-                        found_sig_below = True
-                        break
+                        found_sig_below = True; break
                 
-                if found_sig_below:
-                    ws_p.insert_rows(next_row) 
+                if found_sig_below: ws_p.insert_rows(next_row) 
 
-            # --- D. TULIS DATA KE EXCEL ---
-            
+            # Write Data
             if not is_override:
-                if target_row == 3:
-                    sl_no = 1
+                if target_row == 3: sl_no = 1
                 else:
                     try:
                         prev_sl_cell = ws_p.cell(row=target_row-1, column=1)
-                        if isinstance(prev_sl_cell, MergedCell):
-                             prev_sl = 0 
-                        else:
-                             prev_sl = prev_sl_cell.value
-
-                        if prev_sl and str(prev_sl).isdigit():
-                            sl_no = int(prev_sl) + 1
-                        else:
-                            sl_no = 1 
-                    except:
-                        sl_no = 1
+                        prev_sl = 0 if isinstance(prev_sl_cell, MergedCell) else prev_sl_cell.value
+                        sl_no = int(prev_sl) + 1 if prev_sl and str(prev_sl).isdigit() else 1
+                    except: sl_no = 1
             else:
                 sl_no = ws_p.cell(row=target_row, column=1).value
 
-            # Data for Final Project File (Uses dt_obj - Date Object)
             final_data = [sl_no, draw, part, rev, total, dt_obj, remarks_to_save]
 
             for col, val in enumerate(final_data, 1):
                 cell = ws_p.cell(row=target_row, column=col)
                 if isinstance(cell, MergedCell): continue 
                 cell.value = val
-                
-                # Format Date Column (Col 6)
-                if col == 6:
-                    cell.number_format = 'DD/MM/YYYY'
-
-                if col in [2, 3]:
-                    cell.alignment = LEFT_ALIGN
-                else:
-                    cell.alignment = CENTER_ALIGN
+                if col == 6: cell.number_format = 'DD/MM/YYYY'
+                cell.alignment = LEFT_ALIGN if col in [2, 3] else CENTER_ALIGN
                 cell.border = THIN_BORDER
             
-            # --- E. HIGHLIGHT LATEST DATE ---
-            # Re-scan signature location
+            # Highlights
             new_sig_row = None
             for r in range(1, ws_p.max_row + 10):
                 for c in range(1, 6):
                     val = ws_p.cell(row=r, column=c).value
                     if val and "issued by" in str(val).lower():
-                        new_sig_row = r
-                        break
+                        new_sig_row = r; break
                 if new_sig_row: break
-            
             if not new_sig_row: new_sig_row = ws_p.max_row 
 
-            # Kumpul Date Objects untuk Comparison (Robust checking)
             dates_objects = []
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 parsed_date = None
-                
-                # FIX ERROR ">" not supported between datetime and date
-                # Kita akan tukar semua jadi datetime.date
-                if isinstance(d_val, datetime):
-                    parsed_date = d_val.date()
-                elif isinstance(d_val, date):
-                    parsed_date = d_val
+                if isinstance(d_val, (datetime, date)): parsed_date = d_val if isinstance(d_val, date) else d_val.date()
                 elif d_val:
-                    # Cuba parse string lama (backward compatibility)
                     d_str = str(d_val).strip()
                     try: parsed_date = datetime.strptime(d_str, '%d/%m/%Y').date()
                     except ValueError:
                         try: parsed_date = datetime.strptime(d_str, '%Y-%m-%d').date()
                         except ValueError: pass
-                
-                if parsed_date:
-                    dates_objects.append(parsed_date)
+                if parsed_date: dates_objects.append(parsed_date)
             
             latest_date_obj = max(dates_objects) if dates_objects else None
 
-            # Apply Styles & Cleanup Remarks
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 current_date_obj = None
-                
-                # Parse semula date baris ini untuk compare (Guna Logik Sama)
-                if isinstance(d_val, datetime):
-                    current_date_obj = d_val.date()
-                elif isinstance(d_val, date):
-                    current_date_obj = d_val
+                if isinstance(d_val, (datetime, date)): current_date_obj = d_val if isinstance(d_val, date) else d_val.date()
                 elif d_val:
                      d_str = str(d_val).strip()
                      try: current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
@@ -395,18 +432,8 @@ class DCDEApp(ctk.CTk):
                 for c in range(1, 8):
                     cell = ws_p.cell(row=r, column=c)
                     if isinstance(cell, MergedCell): continue
-                    
-                    # LOGIC: Padam remarks jika bukan latest date
-                    if c == 7: 
-                        if not is_latest:
-                             cell.value = None
-
-                    # Alignment
-                    if c in [2, 3]: 
-                        cell.alignment = LEFT_ALIGN
-                    else:
-                        cell.alignment = CENTER_ALIGN
-
+                    if c == 7 and not is_latest: cell.value = None
+                    cell.alignment = LEFT_ALIGN if c in [2, 3] else CENTER_ALIGN
                     if is_latest:
                         cell.fill = CREAM_YELLOW
                         cell.font = Font(bold=True)
@@ -415,15 +442,13 @@ class DCDEApp(ctk.CTk):
                         cell.font = Font(bold=False)
 
             wb_p.save(proj_file)
-            
             action_msg = "UPDATED (Override)" if is_override else "SAVED (New)"
             self.update_status(f"Success! Data '{part}' has been {action_msg} at Row {target_row}.", "#27ae60")
-            # self.clear_all()  <-- Field kekal
 
         except PermissionError:
              messagebox.showerror("File Error", f"Please close file {full_name}.xlsx before submitting!")
         except Exception as e:
-            self.update_status(f"System Error: {str(e)}", "#c0392b")
+            self.update_status(f"System Error: {str(e)}", COLOR_DANGER)
             print(e)
 
 if __name__ == "__main__":
