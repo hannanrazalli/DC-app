@@ -279,6 +279,62 @@ class DCDEApp(ctk.CTk):
         excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", self.batch_ent.get(), self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
         try:
+            # --- PRE-CHECK: DUPLICATE IN PROJECT FILE ---
+            # Kita load fail projek SEBELUM menulis ke SQL/Master untuk semak duplicate.
+            
+            skip_project_update = False
+            wb_p = None # Placeholder
+            
+            # Hanya semak jika fail wujud
+            if os.path.exists(proj_file):
+                sheet_name = self.assembly_v.get()[:31]
+                # Kita load sekarang untuk semakan
+                wb_p = load_workbook(proj_file)
+                
+                if sheet_name in wb_p.sheetnames:
+                    ws_p = wb_p[sheet_name]
+                    
+                    # Cari Signature Row (utk hadkan kawasan scan)
+                    sig_row = None
+                    for r in range(1, ws_p.max_row + 50):
+                        found_sig = False
+                        for c in range(1, 6): 
+                            val = ws_p.cell(row=r, column=c).value
+                            if val and ("issued by" in str(val).lower() or "drawing issued" in str(val).lower()):
+                                sig_row = r; found_sig = True; break
+                        if found_sig: break
+                    
+                    if not sig_row: sig_row = max(ws_p.max_row + 2, 4)
+
+                    # SCAN DUPLICATE (Part & Rev Sama)
+                    duplicate_found = False
+                    for r in range(3, sig_row):
+                        existing_part = ws_p.cell(row=r, column=3).value
+                        if existing_part and str(existing_part).strip().upper() == part:
+                            existing_rev = ws_p.cell(row=r, column=4).value
+                            if str(existing_rev) == str(rev):
+                                duplicate_found = True
+                                break
+                    
+                    if duplicate_found:
+                        # Popup Warning dengan Pilihan
+                        response = messagebox.askyesno(
+                            "Duplicate Found", 
+                            f"Part '{part}' with Revision '{rev}' already exists in the Project File.\n\n"
+                            "Do you want to add this entry to the MASTER LIST only?\n"
+                            "(Select 'No' to cancel operation)"
+                        )
+                        
+                        if response: 
+                            # User pilih YES: Tambah ke Master/SQL, tapi SKIP Project File
+                            skip_project_update = True
+                        else:
+                            # User pilih NO: Batalkan semua
+                            self.update_status("Operation Cancelled (Duplicate Found).", COLOR_DANGER)
+                            return # STOP HERE
+
+            # Jika sampai sini, maksudnya sama ada tiada duplicate, ATAU user pilih "Add to Master Only".
+
             # 1. SQL INSERT
             try:
                 conn = psycopg2.connect(**DB_CONFIG)
@@ -304,12 +360,20 @@ class DCDEApp(ctk.CTk):
             wb_m.save(master_file_path)
 
             # 3. PROJECT SPECIFIC FILE
+            if skip_project_update:
+                self.update_status(f"Success! Added to Master List ONLY (Skipped Project File).", "#27ae60")
+                return # SELESAI (Tanpa update fail projek)
+
+            # Jika tidak skip, sambung update fail projek
             sheet_name = self.assembly_v.get()[:31]
             if not os.path.exists(proj_file):
                 messagebox.showerror("Error", f"File {full_name}.xlsx not found!\nPlease ensure the file exists.")
                 return
 
-            wb_p = load_workbook(proj_file)
+            # Gunakan wb_p yang dah load tadi (jika ada), atau load baru jika belum
+            if wb_p is None:
+                wb_p = load_workbook(proj_file)
+            
             if sheet_name not in wb_p.sheetnames:
                  ws_p = wb_p.create_sheet(sheet_name)
                  ws_p.append(["Sl. No", "Drawing Name", "Part Number", "Revision", "Total Drawings", "Date Approved", "Remarks"])
@@ -317,7 +381,7 @@ class DCDEApp(ctk.CTk):
             else:
                 ws_p = wb_p[sheet_name]
 
-            # Signature Logic
+            # Signature Logic (Re-scan needed strictly to get variable scope or just reuse logic)
             sig_row = None
             for r in range(1, ws_p.max_row + 50):
                 found_sig = False
@@ -331,18 +395,15 @@ class DCDEApp(ctk.CTk):
                 sig_row = max(ws_p.max_row + 2, 4)
                 ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
 
-            # Override Logic
+            # Override Logic (For updating EXISTING part with NEW revision)
             target_row = None; is_override = False; remarks_to_save = self.remark_v.get()
 
             for r in range(3, sig_row):
                 existing_part = ws_p.cell(row=r, column=3).value
                 if existing_part and str(existing_part).strip().upper() == part:
-                    existing_rev = ws_p.cell(row=r, column=4).value
-                    if str(existing_rev) == str(rev):
-                        messagebox.showerror("Duplicate", f"Part '{part}' Rev '{rev}' already exists at row {r}!")
-                        return 
-                    else:
-                        target_row = r; is_override = True; remarks_to_save = "Revised"; break
+                    # Kita dah check 'exact duplicate' kat atas, so kat sini
+                    # kalau jumpa part sama, maksudnya revision mesti beza (Override scenario)
+                    target_row = r; is_override = True; remarks_to_save = "Revised"; break
             
             # New Entry Logic
             if not target_row:
@@ -403,7 +464,6 @@ class DCDEApp(ctk.CTk):
                 d_val = ws_p.cell(row=r, column=6).value
                 parsed_date = None
                 
-                # --- FIX: STRICT TYPE CHECKING FOR DATE COMPARISON ---
                 if isinstance(d_val, datetime):
                     parsed_date = d_val.date()
                 elif isinstance(d_val, date):
@@ -423,7 +483,6 @@ class DCDEApp(ctk.CTk):
                 d_val = ws_p.cell(row=r, column=6).value
                 current_date_obj = None
                 
-                # --- FIX: SAME STRICT PARSING FOR COMPARISON ---
                 if isinstance(d_val, datetime):
                     current_date_obj = d_val.date()
                 elif isinstance(d_val, date):
