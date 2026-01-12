@@ -51,8 +51,6 @@ class DCDEApp(ctk.CTk):
         self.title("DCDE Engineering Data Entry System")
         
         # --- ADJUSTED DIMENSIONS FOR COMPACT & FULL LOOK ---
-        # 980x760 is ideal for most laptop screens (usually 1366x768)
-        # Prevents cropping at the bottom while keeping width compact.
         self.geometry("980x760")
         self.minsize(900, 720) 
         
@@ -87,7 +85,6 @@ class DCDEApp(ctk.CTk):
         self.subtitle_label.pack(side="left", pady=20)
 
         # --- 2. MAIN CONTENT CARD ---
-        # Reduced padding (20) to make it look "fuller" inside the window
         self.content_frame = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=15, border_width=1, border_color="#BDC3C7")
         self.content_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
         self.content_frame.grid_columnconfigure((0, 1), weight=1) # Two columns
@@ -405,13 +402,19 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 parsed_date = None
-                if isinstance(d_val, (datetime, date)): parsed_date = d_val if isinstance(d_val, date) else d_val.date()
+                
+                # --- FIX: STRICT TYPE CHECKING FOR DATE COMPARISON ---
+                if isinstance(d_val, datetime):
+                    parsed_date = d_val.date()
+                elif isinstance(d_val, date):
+                    parsed_date = d_val
                 elif d_val:
                     d_str = str(d_val).strip()
                     try: parsed_date = datetime.strptime(d_str, '%d/%m/%Y').date()
                     except ValueError:
                         try: parsed_date = datetime.strptime(d_str, '%Y-%m-%d').date()
                         except ValueError: pass
+                
                 if parsed_date: dates_objects.append(parsed_date)
             
             latest_date_obj = max(dates_objects) if dates_objects else None
@@ -419,7 +422,12 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 current_date_obj = None
-                if isinstance(d_val, (datetime, date)): current_date_obj = d_val if isinstance(d_val, date) else d_val.date()
+                
+                # --- FIX: SAME STRICT PARSING FOR COMPARISON ---
+                if isinstance(d_val, datetime):
+                    current_date_obj = d_val.date()
+                elif isinstance(d_val, date):
+                    current_date_obj = d_val
                 elif d_val:
                      d_str = str(d_val).strip()
                      try: current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
