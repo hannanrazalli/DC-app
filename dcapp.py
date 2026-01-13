@@ -19,12 +19,13 @@ DB_CONFIG = {"dbname": "dcde", "user": "postgres", "password": "1234", "host": "
 MASTER_FILE = "Document Control.xlsx"
 LOGO_FILENAME = "LMG Locomotive Logo.jpeg" 
 
-PROJECTS = ["H10 TRC", "H10 BeraPit", "M10(N)", "N10(N)", "Wheel Press Machine"]
-PROJ_MAP = {"H10 TRC": "H10", "H10 BeraPit": "H10", "M10(N)": "M10", "N10(N)": "N10", "Wheel Press Machine": "WPM"}
+# UPDATED: Project Names (Removed (N) from M10 and N10)
+PROJECTS = ["H10 TRC", "H10 BeraPit", "M10", "N10", "Wheel Press Machine"]
+PROJ_MAP = {"H10 TRC": "H10", "H10 BeraPit": "H10", "M10": "M10", "N10": "N10", "Wheel Press Machine": "WPM"}
 ASSEMBLIES = ["Bogie", "Underframe", "Cabin", "Engine Hood", "Radiator Hood", "Muffler", "Gear Case", "Water Expansion Tank", "Battery Box", "Fuel Tank", "Sand Box"]
 ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno"]
 REMARKS_LIST = ["New", "Revised", "-"]
-BATCH_LIST = ["-", "1", "2", "N", "R"]  # ADDED: Dropdown options for Batch
+BATCH_LIST = ["-", "1", "2", "N", "R"]
 MASTER_HEADERS = ["Project", "Country", "Batch", "Main Assembly", "Drawing Name", "Part Number", "Revision", "Total Sheets", "Engineer", "Date Approved", "Remarks"]
 
 # --- COLORS & FONTS ---
@@ -33,6 +34,7 @@ COLOR_ACCENT = "#3498DB"
 COLOR_SUCCESS = "#27AE60"    
 COLOR_DANGER = "#C0392B"     
 COLOR_WARNING = "#F39C12"    
+COLOR_INFO = "#1ABC9C"       # New color for Excel button
 COLOR_BG = "#ECF0F1"         
 COLOR_CARD = "#FFFFFF"       
 COLOR_TEXT = "#34495E"       
@@ -54,8 +56,8 @@ class DCDEApp(ctk.CTk):
         super().__init__()
         self.title("DCDE Engineering Data Entry System")
         
-        self.geometry("980x760")
-        self.minsize(900, 720) 
+        self.geometry("1024x760") # Slightly wider for extra button
+        self.minsize(950, 720) 
         
         self.configure(fg_color=COLOR_BG)
         
@@ -130,7 +132,7 @@ class DCDEApp(ctk.CTk):
                                            fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.proj_drop.grid(row=2, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        # Batch Dropdown (MODIFIED)
+        # Batch Dropdown
         self.add_input_field(label="Batch Code", row=1, col=1)
         self.batch_v = ctk.StringVar(value="-")
         self.batch_drop = ctk.CTkOptionMenu(self.content_frame, values=BATCH_LIST, variable=self.batch_v,
@@ -153,7 +155,7 @@ class DCDEApp(ctk.CTk):
         self.draw_ent.grid(row=5, column=1, padx=20, pady=(5, 10), sticky="ew")
         self.draw_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.draw_ent))
 
-        # Part Number (MODIFIED BINDING)
+        # Part Number
         self.add_input_field(label="Part Number", row=6, col=0)
         self.part_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. H10-100-001")
         self.part_ent.grid(row=7, column=0, padx=20, pady=(5, 10), sticky="ew")
@@ -207,7 +209,8 @@ class DCDEApp(ctk.CTk):
         # --- 3. ACTION BUTTONS ---
         self.btn_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         self.btn_frame.grid(row=13, column=0, columnspan=2, pady=(20, 20), padx=20, sticky="ew")
-        self.btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        # UPDATED: 4 Columns for 4 Buttons
+        self.btn_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         self.btn_submit = ctk.CTkButton(
             self.btn_frame, 
@@ -243,7 +246,20 @@ class DCDEApp(ctk.CTk):
             font=("Segoe UI", 15, "bold"),
             command=self.open_folder
         )
-        self.btn_open_folder.grid(row=0, column=2, padx=(5, 0), sticky="ew")
+        self.btn_open_folder.grid(row=0, column=2, padx=(5, 5), sticky="ew")
+        
+        # UPDATED: New Button for Opening Excel File
+        self.btn_open_excel = ctk.CTkButton(
+            self.btn_frame,
+            text="OPEN EXCEL",
+            fg_color=COLOR_INFO,
+            hover_color="#16A085",
+            height=50,
+            corner_radius=8,
+            font=("Segoe UI", 15, "bold"),
+            command=self.open_project_file
+        )
+        self.btn_open_excel.grid(row=0, column=3, padx=(5, 0), sticky="ew")
 
         # --- 4. STATUS BAR ---
         self.status_bar = ctk.CTkFrame(self, height=30, fg_color="#BDC3C7", corner_radius=0)
@@ -277,6 +293,21 @@ class DCDEApp(ctk.CTk):
             self.update_status(f"Error opening folder: {str(e)}", COLOR_DANGER)
             print(f"Error opening folder: {e}")
 
+    # UPDATED: Function to open specific Excel file
+    def open_project_file(self):
+        full_name = self.proj_v.get()
+        file_path = os.path.join(BASE_PATH, f"{full_name}.xlsx")
+        
+        try:
+            if os.path.exists(file_path):
+                os.startfile(file_path)
+                self.update_status(f"Opened file: {full_name}.xlsx", COLOR_TEXT)
+            else:
+                messagebox.showerror("File Error", f"File not found:\n{file_path}\nPlease submit data first to create the file.")
+                self.update_status("Error: Excel file not found", COLOR_DANGER)
+        except Exception as e:
+             self.update_status(f"Error opening file: {str(e)}", COLOR_DANGER)
+
     # --- LOGIC FUNCTIONS ---
     def to_uppercase(self, event, widget):
         ignored = ["Control_L", "Control_R", "Shift_L", "Shift_R", "Caps_Lock", "Left", "Right", "Up", "Down", "Home", "End"]
@@ -286,38 +317,71 @@ class DCDEApp(ctk.CTk):
         if widget.get() != val:
             widget.delete(0, 'end'); widget.insert(0, val); widget.icursor(pos)
 
-    # NEW: Handle Part Number Input for Automation
+    # UPDATED: Logic for Part Number (N) detection
     def on_part_input(self, event):
-        # First, ensure uppercase
         self.to_uppercase(event, self.part_ent)
-        
-        # Then check logic
         val = self.part_ent.get()
-        # Logic 1: Kalau dalam part number ada "(N)", automatic batch N
-        if "(N)" in val:
+        
+        # Logic: Kalau dalam part number ada "(N)", automatic batch N (Applies to M10 & N10 as requested)
+        # Note: Wheel Press is locked to "-" via update_logic, so this won't override it effectively if locked, 
+        # but to be safe we can check project.
+        current_proj = self.proj_v.get()
+        if current_proj != "Wheel Press Machine" and "(N)" in val:
             self.batch_v.set("N")
 
     def auto_remark_logic(self, event):
         val = self.rev_ent.get()
         if val.isdigit(): self.remark_v.set("Revised" if int(val) >= 1 else "New")
 
+    # UPDATED: Project Selection Logic
     def update_logic(self, choice):
-        # Logic 2: Kalau H10 TRC, automatic batch 2
-        if choice == "H10 TRC":
-            self.batch_v.set("2")
+        # Reset state to normal first
+        self.batch_drop.configure(state="normal")
         
+        # Logic 1: Wheel Press Machine -> Automatic "-" ONLY (Locked)
         if choice == "Wheel Press Machine":
-            self.assembly_drop.configure(values=["Wheel Press"]); self.assembly_v.set("Wheel Press")
-            self.eng_drop.configure(values=["Baskaran"]); self.eng_v.set("Baskaran")
+            self.batch_v.set("-")
+            self.batch_drop.configure(state="disabled") # Disable to enforce "-" only
+            
+            # WPM Specifics
+            self.assembly_drop.configure(values=["Wheel Press"])
+            self.assembly_v.set("Wheel Press")
+            self.eng_drop.configure(values=["Baskaran"])
+            self.eng_v.set("Baskaran")
+            
+        # Logic 2: H10 TRC -> Automatic "2"
+        elif choice == "H10 TRC":
+            self.batch_v.set("2")
+            # Restore lists if coming from WPM
+            self.assembly_drop.configure(values=ASSEMBLIES)
+            if self.assembly_v.get() == "Wheel Press": self.assembly_v.set(ASSEMBLIES[0])
+            self.eng_drop.configure(values=ENGINEER_LIST)
+            
+        # Logic 3: M10, N10, H10 BeraPit -> Maintain option (Open)
         else:
-            self.assembly_drop.configure(values=ASSEMBLIES); self.assembly_v.set(ASSEMBLIES[0])
-            self.eng_drop.configure(values=ENGINEER_LIST); self.eng_v.set(ENGINEER_LIST[0])
+            # If switching from Wheel Press or H10 TRC, maybe reset batch to "-" or keep as is?
+            # User said "maintain option", so we leave it open. 
+            # If it was locked (WPM), we must unlock (done at top).
+            # If it was "2" (TRC), we can leave it or reset. 
+            # Usually safer to reset to "-" if it was "2" to avoid confusion, but user said "maintain option" specifically for BeraPit.
+            # For M10/N10 logic is open.
+            
+            # Restore lists if coming from WPM
+            self.assembly_drop.configure(values=ASSEMBLIES)
+            if self.assembly_v.get() == "Wheel Press": self.assembly_v.set(ASSEMBLIES[0])
+            self.eng_drop.configure(values=ENGINEER_LIST)
 
     def set_today(self): self.date_picker.set_date(date.today())
 
     def clear_all(self):
-        # Updated to clear Batch Dropdown properly
-        self.batch_v.set("-")
+        # Reset batch based on current project logic
+        if self.proj_v.get() == "Wheel Press Machine":
+            self.batch_v.set("-")
+        elif self.proj_v.get() == "H10 TRC":
+             self.batch_v.set("2")
+        else:
+            self.batch_v.set("-")
+            
         for w in [self.draw_ent, self.part_ent, self.rev_ent, self.total_ent]: w.delete(0, 'end')
 
     def submit(self):
