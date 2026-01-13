@@ -7,7 +7,7 @@ from tkcalendar import DateEntry
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from openpyxl.cell.cell import MergedCell 
-from PIL import Image # Diperlukan untuk memaparkan logo
+from PIL import Image, ImageTk 
 
 # --- APPEARANCE SETUP ---
 ctk.set_appearance_mode("Light")
@@ -17,23 +17,25 @@ ctk.set_default_color_theme("dark-blue")
 BASE_PATH = r"C:\Users\HP\Documents\[01] Document Control"
 DB_CONFIG = {"dbname": "dcde", "user": "postgres", "password": "1234", "host": "localhost"}
 MASTER_FILE = "Document Control.xlsx"
-LOGO_FILENAME = "LMG Locomotive Logo.jpeg" # Nama fail logo
+LOGO_FILENAME = "LMG Locomotive Logo.jpeg" 
 
 PROJECTS = ["H10 TRC", "H10 BeraPit", "M10(N)", "N10(N)", "Wheel Press Machine"]
 PROJ_MAP = {"H10 TRC": "H10", "H10 BeraPit": "H10", "M10(N)": "M10", "N10(N)": "N10", "Wheel Press Machine": "WPM"}
 ASSEMBLIES = ["Bogie", "Underframe", "Cabin", "Engine Hood", "Radiator Hood", "Muffler", "Gear Case", "Water Expansion Tank", "Battery Box", "Fuel Tank", "Sand Box"]
 ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno"]
 REMARKS_LIST = ["New", "Revised", "-"]
+BATCH_LIST = ["-", "1", "2", "N", "R"]  # ADDED: Dropdown options for Batch
 MASTER_HEADERS = ["Project", "Country", "Batch", "Main Assembly", "Drawing Name", "Part Number", "Revision", "Total Sheets", "Engineer", "Date Approved", "Remarks"]
 
 # --- COLORS & FONTS ---
-COLOR_PRIMARY = "#2C3E50"    # Dark Slate Blue (Header)
-COLOR_ACCENT = "#3498DB"     # Bright Blue (Highlights)
-COLOR_SUCCESS = "#27AE60"    # Emerald Green (Submit)
-COLOR_DANGER = "#C0392B"     # Red (Clear)
-COLOR_BG = "#ECF0F1"         # Light Grey (Background)
-COLOR_CARD = "#FFFFFF"       # White (Card Background)
-COLOR_TEXT = "#34495E"       # Dark Grey (Text)
+COLOR_PRIMARY = "#2C3E50"    
+COLOR_ACCENT = "#3498DB"     
+COLOR_SUCCESS = "#27AE60"    
+COLOR_DANGER = "#C0392B"     
+COLOR_WARNING = "#F39C12"    
+COLOR_BG = "#ECF0F1"         
+COLOR_CARD = "#FFFFFF"       
+COLOR_TEXT = "#34495E"       
 
 FONT_HEADER = ("Segoe UI", 24, "bold")
 FONT_SECTION = ("Segoe UI", 16, "bold")
@@ -52,21 +54,28 @@ class DCDEApp(ctk.CTk):
         super().__init__()
         self.title("DCDE Engineering Data Entry System")
         
-        # --- ADJUSTED DIMENSIONS FOR COMPACT & FULL LOOK ---
         self.geometry("980x760")
         self.minsize(900, 720) 
         
         self.configure(fg_color=COLOR_BG)
         
+        # --- SET WINDOW ICON ---
+        try:
+            if os.path.exists(LOGO_FILENAME):
+                self.window_icon = ImageTk.PhotoImage(file=LOGO_FILENAME)
+                self.wm_iconphoto(False, self.window_icon)
+        except Exception as e:
+            print(f"Warning: Could not set window icon. {e}")
+
         # Grid layout for the main window
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1) # Content area expands
+        self.grid_rowconfigure(1, weight=1) 
         
         self.setup_ui()
 
     def setup_ui(self):
         # --- 1. HEADER SECTION ---
-        self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=70) # Slightly shorter header
+        self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=70)
         self.header_frame.grid(row=0, column=0, sticky="ew")
         self.header_frame.grid_propagate(False)
 
@@ -89,22 +98,17 @@ class DCDEApp(ctk.CTk):
         # --- LOGO SETUP ---
         try:
             if os.path.exists(LOGO_FILENAME):
-                # Load imej menggunakan PIL
                 pil_img = Image.open(LOGO_FILENAME)
                 
-                # Kira saiz berdasarkan ketinggian teks header
-                # Font header size 24 lebih kurang 32-35 pixel visual height
-                # Kita set height=40 supaya jelas dan seimbang dalam header 70px
                 target_height = 40
                 aspect_ratio = pil_img.width / pil_img.height
                 target_width = int(target_height * aspect_ratio)
                 
-                # Convert ke CTkImage untuk paparan tajam (HighDPI support)
-                logo_ctk = ctk.CTkImage(light_image=pil_img, 
-                                        dark_image=pil_img, 
-                                        size=(target_width, target_height))
+                self.header_logo = ctk.CTkImage(light_image=pil_img, 
+                                                dark_image=pil_img, 
+                                                size=(target_width, target_height))
                 
-                self.logo_label = ctk.CTkLabel(self.header_frame, text="", image=logo_ctk)
+                self.logo_label = ctk.CTkLabel(self.header_frame, text="", image=self.header_logo)
                 self.logo_label.pack(side="right", padx=30)
             else:
                 print(f"Info: Logo file '{LOGO_FILENAME}' not found. Skipping logo.")
@@ -114,7 +118,7 @@ class DCDEApp(ctk.CTk):
         # --- 2. MAIN CONTENT CARD ---
         self.content_frame = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=15, border_width=1, border_color="#BDC3C7")
         self.content_frame.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
-        self.content_frame.grid_columnconfigure((0, 1), weight=1) # Two columns
+        self.content_frame.grid_columnconfigure((0, 1), weight=1) 
 
         # --- SECTION: PROJECT DETAILS ---
         self.create_section_header("1. PROJECT DETAILS", row=0)
@@ -126,10 +130,12 @@ class DCDEApp(ctk.CTk):
                                            fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.proj_drop.grid(row=2, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        # Batch Input
-        self.add_input_field(label="Batch Code (-/N/R)", row=1, col=1)
-        self.batch_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. N")
-        self.batch_ent.grid(row=2, column=1, padx=20, pady=(5, 15), sticky="ew")
+        # Batch Dropdown (MODIFIED)
+        self.add_input_field(label="Batch Code", row=1, col=1)
+        self.batch_v = ctk.StringVar(value="-")
+        self.batch_drop = ctk.CTkOptionMenu(self.content_frame, values=BATCH_LIST, variable=self.batch_v,
+                                            fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+        self.batch_drop.grid(row=2, column=1, padx=20, pady=(5, 15), sticky="ew")
 
         # --- SECTION: TECHNICAL DATA ---
         self.create_section_header("2. DRAWING & TECHNICAL INFORMATION", row=3)
@@ -138,7 +144,7 @@ class DCDEApp(ctk.CTk):
         self.add_input_field(label="Main Assembly", row=4, col=0)
         self.assembly_v = ctk.StringVar(value=ASSEMBLIES[0])
         self.assembly_drop = ctk.CTkOptionMenu(self.content_frame, values=ASSEMBLIES, variable=self.assembly_v, 
-                                               fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
+                                                fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.assembly_drop.grid(row=5, column=0, padx=20, pady=(5, 10), sticky="ew")
 
         # Drawing Name
@@ -147,11 +153,12 @@ class DCDEApp(ctk.CTk):
         self.draw_ent.grid(row=5, column=1, padx=20, pady=(5, 10), sticky="ew")
         self.draw_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.draw_ent))
 
-        # Part Number
+        # Part Number (MODIFIED BINDING)
         self.add_input_field(label="Part Number", row=6, col=0)
         self.part_ent = ctk.CTkEntry(self.content_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. H10-100-001")
         self.part_ent.grid(row=7, column=0, padx=20, pady=(5, 10), sticky="ew")
-        self.part_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.part_ent))
+        # Changed binding to call on_part_input
+        self.part_ent.bind("<KeyRelease>", self.on_part_input)
 
         # Revision & Total Sheets (Side by Side in Column 1)
         self.sub_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -200,7 +207,7 @@ class DCDEApp(ctk.CTk):
         # --- 3. ACTION BUTTONS ---
         self.btn_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         self.btn_frame.grid(row=13, column=0, columnspan=2, pady=(20, 20), padx=20, sticky="ew")
-        self.btn_frame.grid_columnconfigure((0, 1), weight=1)
+        self.btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
         self.btn_submit = ctk.CTkButton(
             self.btn_frame, 
@@ -212,7 +219,7 @@ class DCDEApp(ctk.CTk):
             font=("Segoe UI", 15, "bold"), 
             command=self.submit
         )
-        self.btn_submit.grid(row=0, column=0, padx=(0, 10), sticky="ew")
+        self.btn_submit.grid(row=0, column=0, padx=(0, 5), sticky="ew")
 
         self.btn_clear = ctk.CTkButton(
             self.btn_frame, 
@@ -224,7 +231,19 @@ class DCDEApp(ctk.CTk):
             font=("Segoe UI", 15, "bold"), 
             command=self.clear_all
         )
-        self.btn_clear.grid(row=0, column=1, padx=(10, 0), sticky="ew")
+        self.btn_clear.grid(row=0, column=1, padx=(5, 5), sticky="ew")
+
+        self.btn_open_folder = ctk.CTkButton(
+            self.btn_frame,
+            text="OPEN FOLDER",
+            fg_color=COLOR_WARNING,
+            hover_color="#D35400",
+            height=50,
+            corner_radius=8,
+            font=("Segoe UI", 15, "bold"),
+            command=self.open_folder
+        )
+        self.btn_open_folder.grid(row=0, column=2, padx=(5, 0), sticky="ew")
 
         # --- 4. STATUS BAR ---
         self.status_bar = ctk.CTkFrame(self, height=30, fg_color="#BDC3C7", corner_radius=0)
@@ -237,7 +256,6 @@ class DCDEApp(ctk.CTk):
         label = ctk.CTkLabel(self.content_frame, text=text, font=FONT_SECTION, text_color=COLOR_PRIMARY, anchor="w")
         label.grid(row=row, column=0, columnspan=2, padx=20, pady=(15, 5), sticky="w")
         
-        # Divider Line
         line = ctk.CTkFrame(self.content_frame, height=2, fg_color="#E0E0E0")
         line.grid(row=row+1, column=0, columnspan=2, padx=20, pady=(0, 10), sticky="ew")
 
@@ -247,7 +265,19 @@ class DCDEApp(ctk.CTk):
     def update_status(self, message, color=COLOR_TEXT):
         self.status_label.configure(text=f"STATUS: {message}", text_color=color)
 
-    # --- LOGIC FUNCTIONS (UNCHANGED) ---
+    def open_folder(self):
+        try:
+            if os.path.exists(BASE_PATH):
+                os.startfile(BASE_PATH)
+                self.update_status(f"Opened folder: {BASE_PATH}", COLOR_TEXT)
+            else:
+                messagebox.showerror("Folder Error", f"Folder not found:\n{BASE_PATH}")
+                self.update_status("Error: Folder not found", COLOR_DANGER)
+        except Exception as e:
+            self.update_status(f"Error opening folder: {str(e)}", COLOR_DANGER)
+            print(f"Error opening folder: {e}")
+
+    # --- LOGIC FUNCTIONS ---
     def to_uppercase(self, event, widget):
         ignored = ["Control_L", "Control_R", "Shift_L", "Shift_R", "Caps_Lock", "Left", "Right", "Up", "Down", "Home", "End"]
         if event.keysym in ignored or (event.state & 0x0004): return
@@ -256,11 +286,26 @@ class DCDEApp(ctk.CTk):
         if widget.get() != val:
             widget.delete(0, 'end'); widget.insert(0, val); widget.icursor(pos)
 
+    # NEW: Handle Part Number Input for Automation
+    def on_part_input(self, event):
+        # First, ensure uppercase
+        self.to_uppercase(event, self.part_ent)
+        
+        # Then check logic
+        val = self.part_ent.get()
+        # Logic 1: Kalau dalam part number ada "(N)", automatic batch N
+        if "(N)" in val:
+            self.batch_v.set("N")
+
     def auto_remark_logic(self, event):
         val = self.rev_ent.get()
         if val.isdigit(): self.remark_v.set("Revised" if int(val) >= 1 else "New")
 
     def update_logic(self, choice):
+        # Logic 2: Kalau H10 TRC, automatic batch 2
+        if choice == "H10 TRC":
+            self.batch_v.set("2")
+        
         if choice == "Wheel Press Machine":
             self.assembly_drop.configure(values=["Wheel Press"]); self.assembly_v.set("Wheel Press")
             self.eng_drop.configure(values=["Baskaran"]); self.eng_v.set("Baskaran")
@@ -271,7 +316,9 @@ class DCDEApp(ctk.CTk):
     def set_today(self): self.date_picker.set_date(date.today())
 
     def clear_all(self):
-        for w in [self.batch_ent, self.draw_ent, self.part_ent, self.rev_ent, self.total_ent]: w.delete(0, 'end')
+        # Updated to clear Batch Dropdown properly
+        self.batch_v.set("-")
+        for w in [self.draw_ent, self.part_ent, self.rev_ent, self.total_ent]: w.delete(0, 'end')
 
     def submit(self):
         # 1. GET UI INPUT
@@ -284,6 +331,7 @@ class DCDEApp(ctk.CTk):
         part = self.part_ent.get().upper()
         rev_str = self.rev_ent.get()
         total_str = self.total_ent.get()
+        batch_val = self.batch_v.get() # Get from dropdown variable
         
         dt_obj = self.date_picker.get_date()
         dt_sql = dt_obj.strftime('%Y-%m-%d')
@@ -302,8 +350,8 @@ class DCDEApp(ctk.CTk):
              return
 
         # Data Payloads
-        sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", self.batch_ent.get(), self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
-        excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", self.batch_ent.get(), self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
+        sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
+        excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
         try:
             # --- PRE-CHECK: DUPLICATE IN PROJECT FILE ---
@@ -466,14 +514,18 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 parsed_date = None
-                if isinstance(d_val, datetime): parsed_date = d_val.date()
-                elif isinstance(d_val, date): parsed_date = d_val
+                
+                if isinstance(d_val, datetime):
+                    parsed_date = d_val.date()
+                elif isinstance(d_val, date):
+                    parsed_date = d_val
                 elif d_val:
                     d_str = str(d_val).strip()
                     try: parsed_date = datetime.strptime(d_str, '%d/%m/%Y').date()
                     except ValueError:
                         try: parsed_date = datetime.strptime(d_str, '%Y-%m-%d').date()
                         except ValueError: pass
+                
                 if parsed_date: dates_objects.append(parsed_date)
             
             latest_date_obj = max(dates_objects) if dates_objects else None
@@ -481,8 +533,11 @@ class DCDEApp(ctk.CTk):
             for r in range(3, new_sig_row):
                 d_val = ws_p.cell(row=r, column=6).value
                 current_date_obj = None
-                if isinstance(d_val, datetime): current_date_obj = d_val.date()
-                elif isinstance(d_val, date): current_date_obj = d_val
+                
+                if isinstance(d_val, datetime):
+                    current_date_obj = d_val.date()
+                elif isinstance(d_val, date):
+                    current_date_obj = d_val
                 elif d_val:
                      d_str = str(d_val).strip()
                      try: current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
