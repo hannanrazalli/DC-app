@@ -71,7 +71,7 @@ THIN_BORDER = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side
 class DCDEApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("DCDE Engineering Data Entry System")
+        self.title("Design Engineering Data Entry")
         self.geometry("1024x820") 
         self.minsize(950, 750) 
         self.configure(fg_color=COLOR_BG)
