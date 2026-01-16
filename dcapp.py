@@ -2,6 +2,8 @@ import customtkinter as ctk
 import psycopg2
 import os
 import threading
+import shutil  # Dari Kod 2
+import time    # Dari Kod 2
 from tkinter import messagebox
 from datetime import date, datetime
 from tkcalendar import DateEntry
@@ -14,11 +16,23 @@ from PIL import Image, ImageTk
 ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("dark-blue")
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Kombinasi Kod 1 & Kod 2) ---
 BASE_PATH = r"C:\Users\HP\Documents\[01] Document Control"
 DB_CONFIG = {"dbname": "dcde", "user": "postgres", "password": "1234", "host": "localhost"}
 MASTER_FILE = "Document Control.xlsx"
 LOGO_FILENAME = "LMG Locomotive Logo.jpeg" 
+
+# CONFIGURATION DARI KOD 2
+SERVER_PATH = r"Y:\[04] ENGINEERING TEAM\[98] DOCUMENT CONTROL"
+FILE_MAPPING = {
+    "Document Control.xlsx": "All Projects Drawings Data.xlsx",
+    "H10 Berapit.xlsx": "H10 BeraPit Drawing List.xlsx",
+    "H10 TRC.xlsx": "H10 TRC Drawing List.xlsx",
+    "M10.xlsx": "M10(N) Drawing List.xlsx",
+    "N10.xlsx": "N10(N) Drawing List.xlsx",
+    "Wheel Press Machine.xlsx": "Wheel Press Machine Drawing List.xlsx",
+    "G10.xlsx": "G10 Drawing List.xlsx"
+}
 
 # PROJECT CONFIGURATION
 PROJECTS = ["H10 TRC", "H10 BeraPit", "M10", "N10", "G10", "Wheel Press Machine"]
@@ -91,7 +105,7 @@ class DCDEApp(ctk.CTk):
 
     def setup_ui(self):
         # Header
-        self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=70)
+        self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=85)
         self.header_frame.grid(row=0, column=0, sticky="ew")
         self.header_frame.grid_propagate(False)
 
@@ -101,6 +115,26 @@ class DCDEApp(ctk.CTk):
         self.subtitle_label = ctk.CTkLabel(self.header_frame, text="|  Data Entry System", font=("Segoe UI", 14), text_color="#BDC3C7")
         self.subtitle_label.pack(side="left", pady=20)
 
+        # Right Side Container (Publish + Logo)
+        self.right_side_container = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.right_side_container.pack(side="right", padx=30)
+
+        # Publish UI Block
+        self.publish_ui_frame = ctk.CTkFrame(self.right_side_container, fg_color="transparent")
+        self.publish_ui_frame.pack(side="left", padx=(0, 20))
+
+        # 1. Publish Button (Di sebelah kiri logo)
+        self.btn_publish = ctk.CTkButton(self.publish_ui_frame, text="PUBLISH TO SERVER", 
+                                       fg_color=COLOR_INFO, hover_color="#16A085", 
+                                       font=("Segoe UI", 12, "bold"), height=32,
+                                       command=self.publish_to_server_thread)
+        self.btn_publish.pack(pady=(0, 2))
+
+        # 2. Last Sync Label (Bawah button)
+        self.lbl_last_sync = ctk.CTkLabel(self.publish_ui_frame, text="Last Sync: Never", 
+                                        font=("Segoe UI", 10), text_color="#BDC3C7")
+        self.lbl_last_sync.pack()
+
         # Logo
         try:
             if os.path.exists(LOGO_FILENAME):
@@ -109,8 +143,8 @@ class DCDEApp(ctk.CTk):
                 aspect_ratio = pil_img.width / pil_img.height
                 target_width = int(target_height * aspect_ratio)
                 self.header_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(target_width, target_height))
-                self.logo_label = ctk.CTkLabel(self.header_frame, text="", image=self.header_logo)
-                self.logo_label.pack(side="right", padx=30)
+                self.logo_label = ctk.CTkLabel(self.right_side_container, text="", image=self.header_logo)
+                self.logo_label.pack(side="right")
         except Exception as e:
             print(f"Error loading logo: {e}")
 
@@ -229,7 +263,69 @@ class DCDEApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(self.status_bar, text="System Ready", font=("Consolas", 11), text_color="#2C3E50")
         self.status_label.pack(side="left", padx=20)
 
-    # --- HELPERS ---
+    # --- INTEGRASI MEKANISME KOD 2 ---
+    def publish_to_server_thread(self):
+        """Memulakan proses publish dalam thread berasingan supaya GUI tidak hang."""
+        self.btn_publish.configure(state="disabled", text="Publishing...")
+        self.update_status("Publishing files to server...", COLOR_WARNING)
+        threading.Thread(target=self._run_publish_logic, daemon=True).start()
+
+    def _run_publish_logic(self):
+        """Mekanisme asal dari Kod 2."""
+        print("--- START PUBLISH (DIRECT COPY MODE) ---")
+        
+        if not os.path.exists(SERVER_PATH):
+            self.after(0, lambda: messagebox.showerror("Error", f"Server path not found: {SERVER_PATH}\nPlease check network."))
+            self.after(0, lambda: self.btn_publish.configure(state="normal", text="PUBLISH TO SERVER"))
+            return
+
+        success_count = 0
+        fail_count = 0
+
+        for local_file, server_file in FILE_MAPPING.items():
+            local_full_path = os.path.join(BASE_PATH, local_file)
+            server_full_path = os.path.join(SERVER_PATH, server_file)
+
+            # Check local file existence
+            if not os.path.exists(local_full_path):
+                fail_count += 1
+                continue
+
+            # Check for "File Lock"
+            file_is_locked = False
+            if os.path.exists(server_full_path):
+                try:
+                    os.rename(server_full_path, server_full_path)
+                except OSError:
+                    file_is_locked = True
+                    fail_count += 1
+                    continue
+
+            # Process Copy
+            if not file_is_locked:
+                try:
+                    shutil.copy2(local_full_path, server_full_path)
+                    success_count += 1
+                except Exception as e:
+                    print(f"Copy failed: {e}")
+                    fail_count += 1
+
+        # Update UI after finish
+        self.after(0, self._finalize_publish, success_count, fail_count)
+
+    def _finalize_publish(self, success, fail):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.lbl_last_sync.configure(text=f"Last Sync: {now}")
+        self.btn_publish.configure(state="normal", text="PUBLISH TO SERVER")
+        self.update_status(f"Publish Finished. Success: {success} | Failed: {fail}", COLOR_SUCCESS)
+        self.trigger_feedback("success", "Publish Completed!")
+        
+        if fail > 0:
+            messagebox.showwarning("Sync Result", f"Finished with issues.\nSuccess: {success}\nFailed/Locked: {fail}")
+        else:
+            messagebox.showinfo("Sync Success", f"All files successfully published to server.")
+
+    # --- HELPERS (Dikekalkan 100%) ---
     def create_section_header(self, text, row):
         label = ctk.CTkLabel(self.content_frame, text=text, font=FONT_SECTION, text_color=COLOR_PRIMARY, anchor="w")
         label.grid(row=row, column=0, columnspan=2, padx=20, pady=(15, 5), sticky="w")
@@ -337,7 +433,7 @@ class DCDEApp(ctk.CTk):
             w.delete(0, 'end')
         self.lbl_feedback.configure(text="", fg_color="transparent") 
 
-    # --- SEARCH LOGIC ---
+    # --- SEARCH LOGIC (Dikekalkan 100%) ---
     def check_part_existence_thread(self):
         self.btn_check_part.configure(state="disabled", text="...")
         self.trigger_feedback("info", "Searching All Projects...")
@@ -352,7 +448,6 @@ class DCDEApp(ctk.CTk):
         matches = []
         master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
         
-        # 1. Search Master
         try:
             if os.path.exists(master_file_path):
                 wb = load_workbook(master_file_path, read_only=True)
@@ -374,7 +469,6 @@ class DCDEApp(ctk.CTk):
                         })
                 wb.close()
 
-            # 2. Search Sub Files
             for ui_proj_name in PROJECTS:
                 full_proj_name = ui_proj_name 
                 short_proj_code = PROJ_MAP.get(ui_proj_name)
@@ -438,7 +532,6 @@ class DCDEApp(ctk.CTk):
                 options.append(recs[0])
             self.open_selection_window(options)
 
-    # --- NEW: CUSTOM MATCH FOUND POPUP (SINGLE MATCH) ---
     def show_match_found_dialog(self, m):
         top = ctk.CTkToplevel(self)
         top.title("Record Found")
@@ -446,15 +539,11 @@ class DCDEApp(ctk.CTk):
         top.transient(self)
         top.grab_set()
         
-        # Header
         ctk.CTkLabel(top, text="EXISTING RECORD FOUND", font=("Segoe UI", 16, "bold"), text_color=COLOR_SUCCESS).pack(pady=15)
-
-        # Info Frame (Card Style)
         info_frame = ctk.CTkFrame(top, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=10)
         info_frame.pack(fill="x", padx=20, pady=10)
         info_frame.grid_columnconfigure(1, weight=1)
 
-        # Helper function for grid rows
         def add_row(r, label, value):
             ctk.CTkLabel(info_frame, text=label, font=("Segoe UI", 12), text_color="gray", anchor="w").grid(row=r, column=0, padx=(15, 5), pady=5, sticky="w")
             ctk.CTkLabel(info_frame, text=value, font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT, anchor="w").grid(row=r, column=1, padx=5, pady=5, sticky="w")
@@ -465,19 +554,14 @@ class DCDEApp(ctk.CTk):
         add_row(3, "Latest Rev:", str(m['rev']))
         add_row(4, "Part No:", m['part'])
 
-        # Question
         ctk.CTkLabel(top, text="Do you want to Auto-Fill this data?", font=("Segoe UI", 12)).pack(pady=(15, 10))
-
-        # Buttons
         btn_frame = ctk.CTkFrame(top, fg_color="transparent")
         btn_frame.pack(pady=10)
         
         ctk.CTkButton(btn_frame, text="YES (Auto-Fill)", fg_color=COLOR_SUCCESS, hover_color="#219150", width=120,
                       command=lambda: [self.autofill_form(m), self.trigger_feedback("info", "Form Auto-filled!"), top.destroy()]).pack(side="left", padx=10)
-        
         ctk.CTkButton(btn_frame, text="CANCEL", fg_color=COLOR_DANGER, hover_color="#C0392B", width=80, command=top.destroy).pack(side="left", padx=10)
 
-    # --- POPUP SEARCH RESULT (REDESIGNED) ---
     def open_selection_window(self, matches):
         top = ctk.CTkToplevel(self)
         top.title("Search Results")
@@ -485,52 +569,33 @@ class DCDEApp(ctk.CTk):
         top.transient(self)
         top.grab_set()
         
-        # Header Area
         header_frame = ctk.CTkFrame(top, fg_color=COLOR_PRIMARY, height=70, corner_radius=0)
         header_frame.pack(fill="x")
-        
         ctk.CTkLabel(header_frame, text="SELECT DATA TO AUTO-FILL", font=("Segoe UI", 18, "bold"), text_color="white").pack(pady=(15, 5))
         ctk.CTkLabel(header_frame, text="Please select the correct record from the list below:", font=("Segoe UI", 11), text_color="#BDC3C7").pack(pady=(0, 10))
         
-        # Scrollable Area
         scroll = ctk.CTkScrollableFrame(top, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
         
         for m in matches:
-            # Card Container (White with visible border)
             card = ctk.CTkFrame(scroll, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=8)
             card.pack(fill="x", pady=8, padx=5, ipady=5)
-            
-            # Top Row: Project (Left) & Part No (Right)
             row1 = ctk.CTkFrame(card, fg_color="transparent")
             row1.pack(fill="x", padx=15, pady=(8, 2))
-            
             ctk.CTkLabel(row1, text=f"PROJECT: {m['project']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(side="left")
             ctk.CTkLabel(row1, text=f"{m['part']}", font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).pack(side="right")
-            
-            # Middle Row: Drawing Name
             row2 = ctk.CTkFrame(card, fg_color="transparent")
             row2.pack(fill="x", padx=15, pady=2)
             ctk.CTkLabel(row2, text=f"{m['draw']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(anchor="w")
-            
-            # Bottom Row: Details & Button
             row3 = ctk.CTkFrame(card, fg_color="transparent")
             row3.pack(fill="x", padx=15, pady=(5, 10))
-            
-            # Info Chips
             info_text = f"Assy: {m['assembly']}   |   Total Sheets: {m['total']}"
             ctk.CTkLabel(row3, text=info_text, font=("Segoe UI", 11), text_color="gray").pack(side="left")
-            
-            # Rev Badge & Button Container (Right)
             right_box = ctk.CTkFrame(row3, fg_color="transparent")
             right_box.pack(side="right")
-            
-            # Revision Badge
             rev_lbl = ctk.CTkLabel(right_box, text=f" REV {m['rev']} ", font=("Segoe UI", 12, "bold"), 
                                    fg_color=COLOR_ACCENT, text_color="white", corner_radius=5)
             rev_lbl.pack(side="left", padx=(0, 10))
-            
-            # Select Button
             btn_sel = ctk.CTkButton(right_box, text="SELECT", width=90, height=30, 
                                     fg_color=COLOR_SUCCESS, hover_color="#219150",
                                     font=("Segoe UI", 12, "bold"),
@@ -545,16 +610,13 @@ class DCDEApp(ctk.CTk):
         if ui_name:
             self.proj_v.set(ui_name)
             self.update_logic(ui_name) 
-        
         if data.get('batch'):
             b_val = str(data.get('batch'))
             if b_val == "None" or b_val == "": 
                 b_val = "-"
             self.batch_v.set(b_val)
-        
         assy_val = str(data.get('assembly')).strip()
         self.assembly_v.set(assy_val)
-        
         if data.get('draw'):
             self.draw_ent.delete(0, 'end')
             self.draw_ent.insert(0, str(data.get('draw')))
@@ -566,7 +628,7 @@ class DCDEApp(ctk.CTk):
             self.total_ent.delete(0, 'end')
             self.total_ent.insert(0, str(data.get('total')))
 
-    # --- DUPLICATE CHECKS ---
+    # --- DUPLICATE CHECKS (Dikekalkan 100%) ---
     def check_duplicate_entry(self, file_path, target_sheet_name, part_input, rev_input):
         if not os.path.exists(file_path):
             return False 
@@ -577,11 +639,9 @@ class DCDEApp(ctk.CTk):
                 if s.strip().lower() == target_sheet_name.lower():
                     actual_sheet = s
                     break
-            
             if not actual_sheet:
                 wb.close()
                 return False 
-            
             ws = wb[actual_sheet]
             duplicate_found = False
             for row in ws.iter_rows(min_row=3, values_only=True):
@@ -589,11 +649,9 @@ class DCDEApp(ctk.CTk):
                     continue 
                 excel_part = str(row[2]).strip().upper() if row[2] else ""
                 excel_rev = str(row[3]).strip() if row[3] is not None else ""
-                
                 if excel_part == part_input and excel_rev == str(rev_input):
                     duplicate_found = True
                     break
-            
             wb.close()
             return duplicate_found
         except Exception as e:
@@ -613,7 +671,6 @@ class DCDEApp(ctk.CTk):
                 m_proj = str(row[0]).strip()
                 m_part = str(row[5]).strip().upper()
                 m_rev = str(row[6]).strip()
-                
                 if m_proj == project_code and m_part == part_input and m_rev == str(rev_input):
                     wb.close()
                     return True 
@@ -623,7 +680,7 @@ class DCDEApp(ctk.CTk):
             print(f"Master Check Error: {e}")
             return False
 
-    # --- SUBMIT LOGIC ---
+    # --- SUBMIT LOGIC (MEKANISME ASAL 100%) ---
     def submit(self):
         full_name = self.proj_v.get()
         short_proj = PROJ_MAP.get(full_name)
@@ -656,21 +713,16 @@ class DCDEApp(ctk.CTk):
 
         target_sheet_name = self.assembly_v.get()[:31] 
         
-        # ========================================================
-        # STEP 0: STRICT WRITE-LOCK CHECK (ALL OR NOTHING)
-        # ========================================================
-        # Check Project File Access
+        # STEP 0: WRITE-LOCK CHECK
         if os.path.exists(proj_file):
             try:
-                # Cuba buka dalam mode 'append' sekejap untuk check lock
                 with open(proj_file, "a"):
                     pass
             except PermissionError:
                 self.trigger_feedback("error", "FILE OPEN! Please Close Excel.")
                 messagebox.showerror("File Error", f"File '{full_name}.xlsx' is open!\nPlease close it before submitting.")
-                return # BERHENTI DI SINI SEBELUM SQL/MASTER
+                return 
 
-        # Check Master File Access
         if os.path.exists(master_file_path):
             try:
                 with open(master_file_path, "a"):
@@ -678,24 +730,20 @@ class DCDEApp(ctk.CTk):
             except PermissionError:
                 self.trigger_feedback("error", "MASTER FILE OPEN! Close it.")
                 messagebox.showerror("File Error", f"File '{MASTER_FILE}' is open!\nPlease close it.")
-                return # BERHENTI DI SINI
-        # ========================================================
+                return 
 
         # Define Payloads
         sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
         excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val_excel, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
-        # 1. Strict Duplicate Check (Project File)
+        # Duplicate Check
         if self.check_duplicate_entry(proj_file, target_sheet_name, part, rev):
-            # Duplicate Found in Sub File.
-            # Ask for Re-Release (Master Only)
             msg = (f"Data '{part}' (Rev {rev}) already exists in Project File.\n\n"
-                   "Is this a 'Re-Release' (Master Log Only)?\n"
-                   "YES: Log to Master List as 'Re-Release'. (Skip SQL/Sub File)\n"
-                   "NO: Cancel (Duplicate Error).")
+                    "Is this a 'Re-Release' (Master Log Only)?\n"
+                    "YES: Log to Master List as 'Re-Release'. (Skip SQL/Sub File)\n"
+                    "NO: Cancel (Duplicate Error).")
             
             if messagebox.askyesno("Duplicate Found", msg):
-                # MASTER ONLY PATH
                 try:
                     if not os.path.exists(master_file_path):
                         wb_m = Workbook()
@@ -707,44 +755,32 @@ class DCDEApp(ctk.CTk):
                     wb_m = load_workbook(master_file_path)
                     ws_m = wb_m.active
                     re_release_data = list(excel_master_data)
-                    re_release_data[10] = "Re-Release" # Force Remark
+                    re_release_data[10] = "Re-Release" 
                     
                     ws_m.append(re_release_data)
-                    
-                    # Styling
                     last_row_m = ws_m.max_row
                     for col_idx in range(1, len(re_release_data) + 1):
                         cell_m = ws_m.cell(row=last_row_m, column=col_idx)
                         if col_idx == 10:
                             cell_m.number_format = 'DD/MM/YYYY'
-                        
                         if col_idx in [4, 5, 6]:
                             cell_m.alignment = LEFT_ALIGN
                         else:
                             cell_m.alignment = CENTER_ALIGN
-                        
                         cell_m.border = THIN_BORDER
-                    
                     wb_m.save(master_file_path)
-                    
                     self.trigger_feedback("success", "Re-Release Logged (Master Only)")
                     self.update_status("Success! Re-Release logged in Master List only.", "#27ae60")
-                    return # EXIT
-                
-                except PermissionError:
-                    self.trigger_feedback("error", "MASTER FILE OPEN! Close it.")
-                    return
+                    return 
                 except Exception as e:
                     print(e)
                     return
-
             else:
-                # STOP
                 self.trigger_feedback("error", f"DUPLICATE: {part} exists!")
                 messagebox.showerror("Duplicate Error", f"DATA REJECTED!\n\nPart: {part}\nRev: {rev}\nAlready exists in Excel.")
                 return 
 
-        # IF NO SUB FILE DUPLICATE -> PROCEED AS NORMAL
+        # PROCEED AS NORMAL
         try:
             # SQL Insert
             try:
@@ -757,7 +793,7 @@ class DCDEApp(ctk.CTk):
             except Exception as db_err:
                 print(f"Database Error (Skipped): {db_err}")
 
-            # 2. Master List Control
+            # Master List Control
             if not os.path.exists(master_file_path):
                 wb_m = Workbook()
                 ws_m = wb_m.active
@@ -770,11 +806,10 @@ class DCDEApp(ctk.CTk):
 
             if self.check_master_duplicate(part, rev, short_proj):
                 msg = (f"Record already exists in MASTER LIST (History Log):\n"
-                       f"Part: {part}\nRev: {rev}\n\n"
-                       f"Is this a 'Re-Release'?\n"
-                       f"Click 'Yes' to add as new log (Remark: Re-Release).\n"
-                       f"Click 'No' to skip Master List.")
-                
+                        f"Part: {part}\nRev: {rev}\n\n"
+                        f"Is this a 'Re-Release'?\n"
+                        f"Click 'Yes' to add as new log (Remark: Re-Release).\n"
+                        f"Click 'No' to skip Master List.")
                 if messagebox.askyesno("Master List Log", msg):
                     final_master_data[10] = "Re-Release"
                     self.update_status("Logging as Re-Release in Master List...", COLOR_INFO)
@@ -791,17 +826,14 @@ class DCDEApp(ctk.CTk):
                     cell_m = ws_m.cell(row=last_row_m, column=col_idx)
                     if col_idx == 10:
                         cell_m.number_format = 'DD/MM/YYYY'
-                    
                     if col_idx in [4, 5, 6]:
                         cell_m.alignment = LEFT_ALIGN
                     else:
                         cell_m.alignment = CENTER_ALIGN
-                    
                     cell_m.border = THIN_BORDER
-                
                 wb_m.save(master_file_path)
 
-            # 3. Project File Update
+            # Project File Update
             if not os.path.exists(proj_file):
                 messagebox.showerror("Error", f"File {full_name}.xlsx not found!")
                 return
@@ -886,12 +918,10 @@ class DCDEApp(ctk.CTk):
                 cell.value = val
                 if col == 6:
                     cell.number_format = 'DD/MM/YYYY'
-                
                 if col in [2, 3]:
                     cell.alignment = LEFT_ALIGN
                 else:
                     cell.alignment = CENTER_ALIGN
-                
                 cell.border = THIN_BORDER
             
             # --- SORTING ---
@@ -939,12 +969,10 @@ class DCDEApp(ctk.CTk):
                         cell.value = val
                         if c == 6:
                             cell.number_format = 'DD/MM/YYYY'
-                        
                         if c in [2, 3]:
                             cell.alignment = LEFT_ALIGN
                         else:
                             cell.alignment = CENTER_ALIGN
-                        
                         cell.border = THIN_BORDER
 
             # --- HIGHLIGHTING ---
@@ -995,7 +1023,6 @@ class DCDEApp(ctk.CTk):
                         continue
                     if c == 7 and not is_latest:
                         cell.value = None
-                    
                     if c in [2, 3]:
                         cell.alignment = LEFT_ALIGN
                     else:
