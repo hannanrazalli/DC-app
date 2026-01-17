@@ -434,7 +434,7 @@ class DCDEApp(ctk.CTk):
             w.delete(0, 'end')
         self.lbl_feedback.configure(text="", fg_color="transparent") 
 
-    # --- SEARCH LOGIC (Dikekalkan 100%) ---
+    # --- SEARCH LOGIC (Dikekalkan Autofill Penuh) ---
     def check_part_existence_thread(self):
         self.btn_check_part.configure(state="disabled", text="...")
         self.trigger_feedback("info", "Searching All Projects...")
@@ -450,93 +450,65 @@ class DCDEApp(ctk.CTk):
         master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
         
         try:
+            # 1. Search Master List
             if os.path.exists(master_file_path):
                 wb = load_workbook(master_file_path, read_only=True)
                 ws = wb.active
                 for row in ws.iter_rows(min_row=2, max_row=8000, values_only=True): 
-                    if not row or len(row) < 8:
-                        continue
-                    m_proj, m_batch, m_assy, m_draw, m_part, m_rev, m_total = row[0], row[2], row[3], row[4], row[5], row[6], row[7]
-                    if str(m_part).strip().upper() == part:
+                    if not row or len(row) < 9: continue
+                    if str(row[5]).strip().upper() == part:
                         matches.append({
-                            'source': 'MASTER LIST', 
-                            'project': m_proj, 
-                            'batch': m_batch, 
-                            'assembly': m_assy,
-                            'draw': m_draw, 
-                            'rev': m_rev, 
-                            'total': m_total, 
-                            'part': m_part
+                            'project': row[0], 'batch': row[2], 'assembly': row[3],
+                            'draw': row[4], 'part': row[5], 'rev': row[6], 'total': row[7], 'eng': row[8]
                         })
                 wb.close()
 
+            # 2. Search Local Project Files
             for ui_proj_name in PROJECTS:
-                full_proj_name = ui_proj_name 
-                short_proj_code = PROJ_MAP.get(ui_proj_name)
-                proj_file = os.path.join(BASE_PATH, f"{full_proj_name}.xlsx")
+                short_code = PROJ_MAP.get(ui_proj_name)
+                proj_file = os.path.join(BASE_PATH, f"{ui_proj_name}.xlsx")
                 if os.path.exists(proj_file):
                     wb = load_workbook(proj_file, read_only=True)
                     for sheet_name in wb.sheetnames:
                         ws = wb[sheet_name]
                         for row in ws.iter_rows(min_row=3, max_row=2000, values_only=True): 
-                            if not row or len(row) < 5:
-                                continue
-                            s_draw, s_part, s_rev, s_total = row[1], row[2], row[3], row[4]
-                            if str(s_part).strip().upper() == part:
-                                is_duplicate_match = False
-                                for m in matches:
-                                    if m['part'] == part and str(m['rev']) == str(s_rev) and m['project'] == short_proj_code:
-                                        is_duplicate_match = True
-                                        break
-                                if not is_duplicate_match:
+                            if not row or len(row) < 5: continue
+                            if str(row[2]).strip().upper() == part:
+                                # Avoid exact duplicates in result list
+                                if not any(m['project'] == short_code and str(m['rev']) == str(row[3]) for m in matches):
                                     matches.append({
-                                        'source': f'FILE: {full_proj_name}', 
-                                        'project': short_proj_code, 
-                                        'batch': "-", 
-                                        'assembly': sheet_name, 
-                                        'draw': s_draw, 
-                                        'rev': s_rev, 
-                                        'total': s_total, 
-                                        'part': s_part
+                                        'project': short_code, 'batch': "-", 'assembly': sheet_name,
+                                        'draw': row[1], 'part': row[2], 'rev': row[3], 'total': row[4], 'eng': "-"
                                     })
                     wb.close()
-        except Exception as e:
-            print(f"Error checking: {str(e)}")
+        except Exception as e: print(f"Error checking: {str(e)}")
         self.after(0, lambda: self._post_check(matches, part))
 
     def _post_check(self, matches, part_searched=None):
         self.btn_check_part.configure(state="normal", text="Search")
         self.update_status("Search complete.", COLOR_TEXT)
         if not matches:
-             if part_searched:
-                 self.trigger_feedback("info", "Part Not Found (Safe to add)")
+             if part_searched: self.trigger_feedback("info", "Part Not Found")
              return
 
-        candidates = {}
+        # Deduplicate results by Project + Drawing
+        unique_results = []
+        seen = set()
         for m in matches:
-            key = f"{m['project']} | {m['draw']}"
-            if key not in candidates:
-                candidates[key] = []
-            candidates[key].append(m)
+            key = (m['project'], m['draw'])
+            if key not in seen:
+                seen.add(key)
+                unique_results.append(m)
         
-        unique_keys = list(candidates.keys())
-        if len(unique_keys) == 1:
-            all_recs = candidates[unique_keys[0]]
-            all_recs.sort(key=lambda x: str(x['rev']), reverse=True)
-            final_candidate = all_recs[0]
-            self.show_match_found_dialog(final_candidate)
+        if len(unique_results) == 1:
+            self.show_match_found_dialog(unique_results[0])
         else:
-            options = []
-            for k in unique_keys:
-                recs = candidates[k]
-                recs.sort(key=lambda x: str(x['rev']), reverse=True)
-                options.append(recs[0])
-            self.open_selection_window(options)
+            self.open_selection_window(unique_results)
 
     def show_match_found_dialog(self, m):
         top = ctk.CTkToplevel(self)
         top.title("Record Found")
-        top.geometry("450x380")
+        top.geometry("450x400")
         top.transient(self)
         top.grab_set()
         
@@ -547,12 +519,12 @@ class DCDEApp(ctk.CTk):
 
         def add_row(r, label, value):
             ctk.CTkLabel(info_frame, text=label, font=("Segoe UI", 12), text_color="gray", anchor="w").grid(row=r, column=0, padx=(15, 5), pady=5, sticky="w")
-            ctk.CTkLabel(info_frame, text=value, font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT, anchor="w").grid(row=r, column=1, padx=5, pady=5, sticky="w")
+            ctk.CTkLabel(info_frame, text=str(value), font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT, anchor="w").grid(row=r, column=1, padx=5, pady=5, sticky="w")
 
         add_row(0, "Project:", m['project'])
         add_row(1, "Assembly:", m['assembly'])
         add_row(2, "Drawing:", m['draw'])
-        add_row(3, "Latest Rev:", str(m['rev']))
+        add_row(3, "Latest Rev:", m['rev'])
         add_row(4, "Part No:", m['part'])
 
         ctk.CTkLabel(top, text="Do you want to Auto-Fill this data?", font=("Segoe UI", 12)).pack(pady=(15, 10))
@@ -573,7 +545,6 @@ class DCDEApp(ctk.CTk):
         header_frame = ctk.CTkFrame(top, fg_color=COLOR_PRIMARY, height=70, corner_radius=0)
         header_frame.pack(fill="x")
         ctk.CTkLabel(header_frame, text="SELECT DATA TO AUTO-FILL", font=("Segoe UI", 18, "bold"), text_color="white").pack(pady=(15, 5))
-        ctk.CTkLabel(header_frame, text="Please select the correct record from the list below:", font=("Segoe UI", 11), text_color="#BDC3C7").pack(pady=(0, 10))
         
         scroll = ctk.CTkScrollableFrame(top, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=20, pady=10)
@@ -585,107 +556,86 @@ class DCDEApp(ctk.CTk):
             row1.pack(fill="x", padx=15, pady=(8, 2))
             ctk.CTkLabel(row1, text=f"PROJECT: {m['project']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(side="left")
             ctk.CTkLabel(row1, text=f"{m['part']}", font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).pack(side="right")
+            
             row2 = ctk.CTkFrame(card, fg_color="transparent")
             row2.pack(fill="x", padx=15, pady=2)
             ctk.CTkLabel(row2, text=f"{m['draw']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(anchor="w")
+            
             row3 = ctk.CTkFrame(card, fg_color="transparent")
             row3.pack(fill="x", padx=15, pady=(5, 10))
-            info_text = f"Assy: {m['assembly']}   |   Total Sheets: {m['total']}"
-            ctk.CTkLabel(row3, text=info_text, font=("Segoe UI", 11), text_color="gray").pack(side="left")
-            right_box = ctk.CTkFrame(row3, fg_color="transparent")
-            right_box.pack(side="right")
-            rev_lbl = ctk.CTkLabel(right_box, text=f" REV {m['rev']} ", font=("Segoe UI", 12, "bold"), 
-                                   fg_color=COLOR_ACCENT, text_color="white", corner_radius=5)
-            rev_lbl.pack(side="left", padx=(0, 10))
-            btn_sel = ctk.CTkButton(right_box, text="SELECT", width=90, height=30, 
-                                    fg_color=COLOR_SUCCESS, hover_color="#219150",
-                                    font=("Segoe UI", 12, "bold"),
-                                    command=lambda data=m: [self.autofill_form(data), top.destroy(), self.trigger_feedback("info", "Data Selected")])
-            btn_sel.pack(side="left")
+            ctk.CTkLabel(row3, text=f"Assy: {m['assembly']} | Rev: {m['rev']}", font=("Segoe UI", 11), text_color="gray").pack(side="left")
+            ctk.CTkButton(row3, text="SELECT", width=90, fg_color=COLOR_SUCCESS, font=("Segoe UI", 12, "bold"),
+                          command=lambda data=m: [self.autofill_form(data), top.destroy(), self.trigger_feedback("info", "Data Selected")]).pack(side="right")
             
-        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, hover_color="#C0392B", width=120, command=top.destroy).pack(pady=15)
+        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=120, command=top.destroy).pack(pady=15)
 
     def autofill_form(self, data):
+        """Fungsi Autofill yang lengkap mengisi dropdown dan entri."""
         short_code = str(data.get('project')).strip()
         ui_name = REVERSE_PROJ_MAP.get(short_code)
         if ui_name:
             self.proj_v.set(ui_name)
             self.update_logic(ui_name) 
+        
         if data.get('batch'):
             b_val = str(data.get('batch'))
-            if b_val == "None" or b_val == "": 
-                b_val = "-"
+            if b_val in [None, "", "None"]: b_val = "-"
             self.batch_v.set(b_val)
-        assy_val = str(data.get('assembly')).strip()
-        self.assembly_v.set(assy_val)
+            
+        if data.get('assembly'):
+            self.assembly_v.set(str(data.get('assembly')))
+            
         if data.get('draw'):
             self.draw_ent.delete(0, 'end')
             self.draw_ent.insert(0, str(data.get('draw')))
+            
         if data.get('rev') is not None:
             self.rev_ent.delete(0, 'end')
             self.rev_ent.insert(0, str(data.get('rev')))
             self.auto_remark_logic(None)
+            
         if data.get('total') is not None:
             self.total_ent.delete(0, 'end')
             self.total_ent.insert(0, str(data.get('total')))
+            
+        if data.get('eng') and data.get('eng') in ENGINEER_LIST:
+            self.eng_v.set(data.get('eng'))
 
-    # --- DUPLICATE CHECKS (Dikekalkan 100%) ---
+    # --- DUPLICATE CHECKS ---
     def check_duplicate_entry(self, file_path, target_sheet_name, part_input, rev_input):
-        if not os.path.exists(file_path):
-            return False 
+        if not os.path.exists(file_path): return False 
         try:
             wb = load_workbook(file_path, read_only=True, data_only=True)
-            actual_sheet = None
-            for s in wb.sheetnames:
-                if s.strip().lower() == target_sheet_name.lower():
-                    actual_sheet = s
-                    break
-            if not actual_sheet:
-                wb.close()
-                return False 
+            actual_sheet = next((s for s in wb.sheetnames if s.strip().lower() == target_sheet_name.lower()), None)
+            if not actual_sheet: wb.close(); return False 
             ws = wb[actual_sheet]
-            duplicate_found = False
             for row in ws.iter_rows(min_row=3, values_only=True):
-                if row and len(row) < 4:
-                    continue 
-                excel_part = str(row[2]).strip().upper() if row[2] else ""
-                excel_rev = str(row[3]).strip() if row[3] is not None else ""
-                if excel_part == part_input and excel_rev == str(rev_input):
-                    duplicate_found = True
-                    break
-            wb.close()
-            return duplicate_found
-        except Exception as e:
-            print(f"Error checking duplicate: {e}")
-            return False 
+                if row and len(row) >= 4 and str(row[2]).strip().upper() == part_input and str(row[3]) == str(rev_input):
+                    wb.close(); return True
+            wb.close(); return False
+        except: return False 
 
-    def check_master_duplicate(self, part_input, rev_input, project_code):
+    def check_master_duplicate(self, current_payload):
+        """Menyemak duplicate di Master List berdasarkan 9 kolum pertama (spesifik)."""
         master_path = os.path.join(BASE_PATH, MASTER_FILE)
-        if not os.path.exists(master_path):
-            return False
+        if not os.path.exists(master_path): return False
         try:
             wb = load_workbook(master_path, read_only=True, data_only=True)
             ws = wb.active
             for row in ws.iter_rows(min_row=2, max_row=8000, values_only=True):
-                if row and len(row) < 7:
-                    continue
-                m_proj = str(row[0]).strip()
-                m_part = str(row[5]).strip().upper()
-                m_rev = str(row[6]).strip()
-                if m_proj == project_code and m_part == part_input and m_rev == str(rev_input):
-                    wb.close()
-                    return True 
-            wb.close()
-            return False
-        except Exception as e:
-            print(f"Master Check Error: {e}")
-            return False
+                if not row or len(row) < 9: continue
+                match = True
+                for i in range(9):
+                    if str(row[i]).strip().upper() != str(current_payload[i]).strip().upper():
+                        match = False; break
+                if match: wb.close(); return True 
+            wb.close(); return False
+        except: return False
 
-    # --- FUNGSI BARU UNTUK PILIHAN DUPLICATE (ADJUSTMENT) ---
     def show_duplicate_choice_dialog(self, part, rev, sql_data, excel_master_data, master_file_path):
-        """Dialog khas untuk membenarkan kemasukan ke SQL sahaja jika Excel pendua."""
+        """Popup dialog 3 pilihan khusus jika pendua dikesan dalam fail projek."""
         top = ctk.CTkToplevel(self)
-        top.title("Duplicate Found")
+        top.title("Duplicate Action Required")
         top.geometry("480x320")
         top.transient(self)
         top.grab_set()
@@ -694,392 +644,191 @@ class DCDEApp(ctk.CTk):
         ctk.CTkLabel(top, text=f"Part No: {part} (Rev {rev})\nalready exists in the sub-project Excel file.", justify="center").pack(pady=5)
         ctk.CTkLabel(top, text="What would you like to do?", font=("Segoe UI", 12, "bold")).pack(pady=15)
 
-        btn_frame = ctk.CTkFrame(top, fg_color="transparent")
-        btn_frame.pack(pady=10)
+        btn_f = ctk.CTkFrame(top, fg_color="transparent")
+        btn_f.pack(pady=10)
 
-        def on_re_release():
+        def handle_master():
             top.destroy()
             try:
-                if not os.path.exists(master_file_path):
-                    wb_m = Workbook()
-                    ws_m = wb_m.active
-                    ws_m.title = "MasterList"
-                    ws_m.append(MASTER_HEADERS)
-                    wb_m.save(master_file_path)
-                
                 wb_m = load_workbook(master_file_path)
                 ws_m = wb_m.active
-                re_release_data = list(excel_master_data)
-                re_release_data[10] = "Re-Release"
-                
+                re_release_data = list(excel_master_data); re_release_data[10] = "Re-Release" 
                 ws_m.append(re_release_data)
-                last_row_m = ws_m.max_row
-                for col_idx in range(1, len(re_release_data) + 1):
-                    cell_m = ws_m.cell(row=last_row_m, column=col_idx)
-                    if col_idx == 10:
-                        cell_m.number_format = 'DD/MM/YYYY'
-                    if col_idx in [4, 5, 6]:
-                        cell_m.alignment = LEFT_ALIGN
-                    else:
-                        cell_m.alignment = CENTER_ALIGN
-                    cell_m.border = THIN_BORDER
+                l_row = ws_m.max_row
+                for idx in range(1, len(re_release_data) + 1):
+                    cell = ws_m.cell(row=l_row, column=idx)
+                    if idx == 10: cell.number_format = 'DD/MM/YYYY'
+                    cell.alignment = LEFT_ALIGN if idx in [4, 5, 6] else CENTER_ALIGN
+                    cell.border = THIN_BORDER
                 wb_m.save(master_file_path)
-                self.trigger_feedback("success", "Re-Release Logged (Master Only)")
-                self.update_status("Success! Re-Release logged in Master List only.", "#27ae60")
-            except Exception as e:
-                print(e)
+                self.trigger_feedback("success", "Logged to Master Only")
+            except: pass
 
-        def on_sql_only():
+        def handle_sql():
             top.destroy()
             try:
-                conn = psycopg2.connect(**DB_CONFIG)
-                cur = conn.cursor()
+                conn = psycopg2.connect(**DB_CONFIG); cur = conn.cursor()
                 cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
-                conn.commit()
-                cur.close()
-                conn.close()
-                self.trigger_feedback("success", "Data Inserted into SQL Only")
-                self.update_status("Success! Data added to database only.", COLOR_SUCCESS)
-            except Exception as db_err:
-                messagebox.showerror("SQL Error", f"Failed to insert: {db_err}")
+                conn.commit(); cur.close(); conn.close()
+                self.trigger_feedback("success", "Inserted to SQL Only")
+            except: pass
 
-        ctk.CTkButton(btn_frame, text="RE-RELEASE\n(MASTER ONLY)", fg_color=COLOR_PRIMARY, width=150, height=50, command=on_re_release).grid(row=0, column=0, padx=10)
-        ctk.CTkButton(btn_frame, text="SQL ONLY\n(DATABASE)", fg_color=COLOR_INFO, width=150, height=50, command=on_sql_only).grid(row=0, column=1, padx=10)
-        
+        ctk.CTkButton(btn_f, text="RE-RELEASE\n(MASTER ONLY)", fg_color=COLOR_PRIMARY, width=150, height=50, command=handle_master).grid(row=0, column=0, padx=10)
+        ctk.CTkButton(btn_f, text="SQL ONLY\n(DATABASE)", fg_color=COLOR_INFO, width=150, height=50, command=handle_sql).grid(row=0, column=1, padx=10)
         ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=80, command=top.destroy).pack(pady=15)
 
-    # --- SUBMIT LOGIC (MEKANISME ASAL 100% DENGAN ADJUSTMENT) ---
+    # --- SUBMIT LOGIC (Original Flow with Adjustments) ---
     def submit(self):
         full_name = self.proj_v.get()
         short_proj = PROJ_MAP.get(full_name)
         proj_file = os.path.join(BASE_PATH, f"{full_name}.xlsx")
         master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
         
-        draw = self.draw_ent.get().upper()
-        part = self.part_ent.get().upper()
-        rev_str = self.rev_ent.get()
-        total_str = self.total_ent.get()
+        draw = self.draw_ent.get().upper().strip()
+        part = self.part_ent.get().upper().strip()
+        rev_str = self.rev_ent.get().strip()
+        total_str = self.total_ent.get().strip()
         
-        batch_val = self.batch_v.get()
-        batch_val_excel = int(batch_val) if batch_val.isdigit() else batch_val
-        
-        dt_obj = self.date_picker.get_date()
-        dt_sql = dt_obj.strftime('%Y-%m-%d')
-        
-        # Validation
         if not all([draw, part, rev_str, total_str]):
-            self.update_status("Error: Please fill in mandatory fields!", COLOR_DANGER)
-            self.trigger_feedback("error", "Missing Mandatory Fields!")
-            return
-        
-        try:
-            rev = int(rev_str)
-            total = int(total_str)
-        except ValueError:
-            self.trigger_feedback("error", "Revision/Total must be numbers")
-            return
+            self.trigger_feedback("error", "Missing Mandatory Fields!"); return
+        try: rev, total = int(rev_str), int(total_str)
+        except: self.trigger_feedback("error", "Revision/Total must be numbers"); return
 
         target_sheet_name = self.assembly_v.get()[:31] 
-        
-        # STEP 0: WRITE-LOCK CHECK
-        if os.path.exists(proj_file):
-            try:
-                with open(proj_file, "a"):
-                    pass
-            except PermissionError:
-                self.trigger_feedback("error", "FILE OPEN! Please Close Excel.")
-                messagebox.showerror("File Error", f"File '{full_name}.xlsx' is open!\nPlease close it before submitting.")
-                return 
+        batch_val = self.batch_v.get()
+        batch_val_excel = int(batch_val) if batch_val.isdigit() else batch_val
+        dt_obj = self.date_picker.get_date()
+        dt_sql = dt_obj.strftime('%Y-%m-%d')
+        country = "Tanzania" if full_name == "H10 TRC" else "Malaysia"
 
-        if os.path.exists(master_file_path):
-            try:
-                with open(master_file_path, "a"):
-                    pass
-            except PermissionError:
-                self.trigger_feedback("error", "MASTER FILE OPEN! Close it.")
-                messagebox.showerror("File Error", f"File '{MASTER_FILE}' is open!\nPlease close it.")
-                return 
+        # Write-Lock Check
+        for f in [proj_file, master_file_path]:
+            if os.path.exists(f):
+                try: 
+                    with open(f, "a"): pass
+                except PermissionError:
+                    messagebox.showerror("File Error", f"File '{os.path.basename(f)}' is open!"); return
 
-        # Define Payloads
-        sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
-        excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val_excel, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
+        sql_data = [short_proj, country, batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
+        excel_master_data = [short_proj, country, batch_val_excel, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
-        # --- ADJUSTMENT: Duplicate Check dengan SQL Only Option ---
+        # 1. DUPLICATE IN SUB-FILE CHECK
         if self.check_duplicate_entry(proj_file, target_sheet_name, part, rev):
             self.show_duplicate_choice_dialog(part, rev, sql_data, excel_master_data, master_file_path)
             return
 
-        # PROCEED AS NORMAL
         try:
-            # SQL Insert
+            # 2. SQL Insert
             try:
-                conn = psycopg2.connect(**DB_CONFIG)
-                cur = conn.cursor()
+                conn = psycopg2.connect(**DB_CONFIG); cur = conn.cursor()
                 cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
-                conn.commit()
-                cur.close()
-                conn.close()
-            except Exception as db_err:
-                print(f"Database Error (Skipped): {db_err}")
+                conn.commit(); cur.close(); conn.close()
+            except Exception as e: print(f"DB Error: {e}")
 
-            # Master List Control
+            # 3. Master List Update
             if not os.path.exists(master_file_path):
-                wb_m = Workbook()
-                ws_m = wb_m.active
-                ws_m.title = "MasterList"
-                ws_m.append(MASTER_HEADERS)
-                wb_m.save(master_file_path)
+                wb_m = Workbook(); ws_m = wb_m.active; ws_m.title = "MasterList"; ws_m.append(MASTER_HEADERS); wb_m.save(master_file_path)
             
             add_to_master = True
-            final_master_data = list(excel_master_data) 
-
-            if self.check_master_duplicate(part, rev, short_proj):
-                msg = (f"Record already exists in MASTER LIST (History Log):\n"
-                        f"Part: {part}\nRev: {rev}\n\n"
-                        f"Is this a 'Re-Release'?\n"
-                        f"Click 'Yes' to add as new log (Remark: Re-Release).\n"
-                        f"Click 'No' to skip Master List.")
-                if messagebox.askyesno("Master List Log", msg):
+            final_master_data = list(excel_master_data)
+            if self.check_master_duplicate(excel_master_data):
+                if messagebox.askyesno("Master Log", "Exact record matches Master List. Re-Release?"):
                     final_master_data[10] = "Re-Release"
-                    self.update_status("Logging as Re-Release in Master List...", COLOR_INFO)
-                else:
-                    add_to_master = False
-                    self.update_status("Skipped Master List update.", COLOR_INFO)
+                else: add_to_master = False
             
             if add_to_master:
-                wb_m = load_workbook(master_file_path)
-                ws_m = wb_m.active
+                wb_m = load_workbook(master_file_path); ws_m = wb_m.active
                 ws_m.append(final_master_data)
-                last_row_m = ws_m.max_row
-                for col_idx in range(1, len(final_master_data) + 1):
-                    cell_m = ws_m.cell(row=last_row_m, column=col_idx)
-                    if col_idx == 10:
-                        cell_m.number_format = 'DD/MM/YYYY'
-                    if col_idx in [4, 5, 6]:
-                        cell_m.alignment = LEFT_ALIGN
-                    else:
-                        cell_m.alignment = CENTER_ALIGN
-                    cell_m.border = THIN_BORDER
+                l_row = ws_m.max_row
+                for idx in range(1, len(final_master_data) + 1):
+                    cell = ws_m.cell(row=l_row, column=idx)
+                    if idx == 10: cell.number_format = 'DD/MM/YYYY'
+                    cell.alignment = LEFT_ALIGN if idx in [4, 5, 6] else CENTER_ALIGN
+                    cell.border = THIN_BORDER
                 wb_m.save(master_file_path)
 
-            # Project File Update
-            if not os.path.exists(proj_file):
-                messagebox.showerror("Error", f"File {full_name}.xlsx not found!")
-                return
-            
+            # 4. Project File Update (Dikekalkan Logik Panjang)
             wb_p = load_workbook(proj_file)
-            actual_sheet_name = None
-            for s in wb_p.sheetnames:
-                if s.strip().lower() == target_sheet_name.lower():
-                    actual_sheet_name = s
-                    break
+            actual_sheet_name = next((s for s in wb_p.sheetnames if s.strip().lower() == target_sheet_name.lower()), None)
             
-            data_start_row = 3 
-            if actual_sheet_name:
-                ws_p = wb_p[actual_sheet_name]
-                for r in range(1, 11):
-                    val = ws_p.cell(row=r, column=3).value
-                    if val and "part number" in str(val).lower():
-                        data_start_row = r + 1
-                        break
+            if not actual_sheet_name:
+                ws_p = wb_p.create_sheet(target_sheet_name)
+                ws_p.append(["Document Control"]); ws_p.append(["Sl. No", "Drawing Name", "Part Number", "Revision", "Total Drawings", "Date Approved", "Remarks"])
+                ws_p.cell(row=15, column=1, value="Drawing issued by:-"); data_start_row = 3
             else:
-                 ws_p = wb_p.create_sheet(target_sheet_name)
-                 ws_p.append(["Document Control"])
-                 ws_p.append(["Sl. No", "Drawing Name", "Part Number", "Revision", "Total Drawings", "Date Approved", "Remarks"]) 
-                 ws_p.cell(row=15, column=1, value="Drawing issued by:-")
-                 data_start_row = 3 
+                ws_p = wb_p[actual_sheet_name]; data_start_row = 3
+                for r in range(1, 11):
+                    if "part number" in str(ws_p.cell(row=r, column=3).value or "").lower(): data_start_row = r + 1; break
 
-            sig_row = None
-            for r in range(data_start_row, ws_p.max_row + 50):
-                found_sig = False
-                for c in range(1, 6): 
-                    val = ws_p.cell(row=r, column=c).value
-                    if val and ("issued by" in str(val).lower() or "drawing issued" in str(val).lower()):
-                        sig_row = r
-                        found_sig = True
-                        break
-                if found_sig:
-                    break
-            
-            if not sig_row:
-                sig_row = max(ws_p.max_row + 2, 4)
-                ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
+            sig_row = next((r for r in range(data_start_row, ws_p.max_row + 50) if any("issued by" in str(ws_p.cell(row=r, column=c).value or "").lower() for c in range(1, 6))), None)
+            if not sig_row: sig_row = max(ws_p.max_row + 2, 4); ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
 
-            target_row = None
-            is_override = False
-            remarks_to_save = self.remark_v.get()
-            
-            for r in range(data_start_row, sig_row):
-                existing_part = ws_p.cell(row=r, column=3).value
-                if existing_part and str(existing_part).strip().upper() == part:
-                    target_row = r
-                    is_override = True
-                    remarks_to_save = "Revised"
-                    break
-            
+            target_row = next((r for r in range(data_start_row, sig_row) if str(ws_p.cell(row=r, column=3).value or "").strip().upper() == part), None)
+            is_override = target_row is not None
+            remarks_to_save = "Revised" if is_override else self.remark_v.get()
+
             if not target_row:
-                last_data_row = data_start_row - 1 
-                start_scan = max(data_start_row, sig_row - 1)
-                for r in range(start_scan, data_start_row - 1, -1):
-                    val_draw = ws_p.cell(row=r, column=2).value
-                    val_part = ws_p.cell(row=r, column=3).value
-                    if (val_draw and str(val_draw).strip()) or (val_part and str(val_part).strip()):
-                        last_data_row = r
-                        break
-                target_row = last_data_row + 1
+                l_data_row = data_start_row - 1
+                for r in range(max(data_start_row, sig_row - 1), data_start_row - 1, -1):
+                    if ws_p.cell(row=r, column=2).value or ws_p.cell(row=r, column=3).value: l_data_row = r; break
+                target_row = l_data_row + 1
                 ws_p.insert_rows(target_row)
-                current_max = ws_p.max_row
-                for r in range(current_max, target_row, -1):
-                    if (r-1) in ws_p.row_dimensions:
-                        ws_p.row_dimensions[r].height = ws_p.row_dimensions[r-1].height
+                for r in range(ws_p.max_row, target_row, -1):
+                    if (r-1) in ws_p.row_dimensions: ws_p.row_dimensions[r].height = ws_p.row_dimensions[r-1].height
                 ws_p.row_dimensions[target_row].height = None 
 
-            if not is_override:
-                sl_no = target_row - data_start_row + 1
-            else:
-                sl_no = ws_p.cell(row=target_row, column=1).value
-            
+            sl_no = target_row - data_start_row + 1 if not is_override else ws_p.cell(row=target_row, column=1).value
             final_data = [sl_no, draw, part, rev, total, dt_obj, remarks_to_save]
             for col, val in enumerate(final_data, 1):
                 cell = ws_p.cell(row=target_row, column=col)
-                if isinstance(cell, MergedCell):
-                    continue 
-                cell.value = val
-                if col == 6:
-                    cell.number_format = 'DD/MM/YYYY'
-                if col in [2, 3]:
-                    cell.alignment = LEFT_ALIGN
-                else:
-                    cell.alignment = CENTER_ALIGN
-                cell.border = THIN_BORDER
+                if not isinstance(cell, MergedCell):
+                    cell.value = val
+                    if col == 6: cell.number_format = 'DD/MM/YYYY'
+                    cell.alignment = LEFT_ALIGN if col in [2, 3] else CENTER_ALIGN
+                    cell.border = THIN_BORDER
             
             # --- SORTING ---
-            sig_row_current = None
-            for r in range(data_start_row, ws_p.max_row + 10):
-                found = False
-                for c in range(1, 6):
-                    val = ws_p.cell(row=r, column=c).value
-                    if val and "issued by" in str(val).lower():
-                        sig_row_current = r
-                        found = True
-                        break
-                if found:
-                    break
-            
-            if not sig_row_current:
-                sig_row_current = ws_p.max_row + 1
-            sort_end_row = sig_row_current - 1
-            
+            sig_row_curr = next((r for r in range(data_start_row, ws_p.max_row + 10) if any("issued by" in str(ws_p.cell(row=r, column=c).value or "").lower() for c in range(1, 6))), ws_p.max_row + 1)
             data_matrix = []
-            if sort_end_row >= data_start_row:
-                for r in range(data_start_row, sort_end_row + 1):
-                    row_data = []
-                    has_data = False
-                    for c in range(2, 8):
-                        val = ws_p.cell(row=r, column=c).value
-                        row_data.append(val)
-                        if val is not None:
-                            has_data = True
-                    if has_data:
-                        data_matrix.append(row_data)
-                
+            if sig_row_curr - 1 >= data_start_row:
+                for r in range(data_start_row, sig_row_curr):
+                    r_d = [ws_p.cell(row=r, column=c).value for c in range(2, 8)]
+                    if any(r_d): data_matrix.append(r_d)
                 data_matrix.sort(key=lambda x: str(x[1]).strip().upper() if x[1] else "")
-                
-                for i, row_data in enumerate(data_matrix):
-                    current_r = data_start_row + i
-                    sl_cell = ws_p.cell(row=current_r, column=1)
-                    sl_cell.value = i + 1
-                    sl_cell.alignment = CENTER_ALIGN
-                    sl_cell.border = THIN_BORDER
-                    
-                    for idx, val in enumerate(row_data):
-                        c = idx + 2
-                        cell = ws_p.cell(row=current_r, column=c)
-                        cell.value = val
-                        if c == 6:
-                            cell.number_format = 'DD/MM/YYYY'
-                        if c in [2, 3]:
-                            cell.alignment = LEFT_ALIGN
-                        else:
-                            cell.alignment = CENTER_ALIGN
+                for i, r_d in enumerate(data_matrix):
+                    curr_r = data_start_row + i
+                    sl_c = ws_p.cell(row=curr_r, column=1); sl_c.value = i+1; sl_c.alignment = CENTER_ALIGN; sl_c.border = THIN_BORDER
+                    for idx, v in enumerate(r_d):
+                        c = idx + 2; cell = ws_p.cell(row=curr_r, column=c); cell.value = v
+                        if c == 6: cell.number_format = 'DD/MM/YYYY'
+                        cell.alignment = LEFT_ALIGN if c in [2, 3] else CENTER_ALIGN
                         cell.border = THIN_BORDER
 
             # --- HIGHLIGHTING ---
-            dates_objects = []
-            for r in range(data_start_row, sig_row_current):
-                d_val = ws_p.cell(row=r, column=6).value
-                parsed_date = None
-                if isinstance(d_val, datetime):
-                    parsed_date = d_val.date()
-                elif isinstance(d_val, date):
-                    parsed_date = d_val
-                elif d_val:
-                    d_str = str(d_val).strip()
-                    try:
-                        parsed_date = datetime.strptime(d_str, '%d/%m/%Y').date()
-                    except ValueError:
-                        try:
-                            parsed_date = datetime.strptime(d_str, '%Y-%m-%d').date()
-                        except ValueError:
-                            pass
-                if parsed_date:
-                    dates_objects.append(parsed_date)
-            
-            latest_date_obj = max(dates_objects) if dates_objects else None
+            dates_objs = []
+            for r in range(data_start_row, sig_row_curr):
+                d_v = ws_p.cell(row=r, column=6).value
+                if isinstance(d_v, (datetime, date)): dates_objs.append(d_v.date() if isinstance(d_v, datetime) else d_v)
+            latest_d = max(dates_objs) if dates_objs else None
 
-            for r in range(data_start_row, sig_row_current):
-                d_val = ws_p.cell(row=r, column=6).value
-                current_date_obj = None
-                if isinstance(d_val, datetime):
-                    current_date_obj = d_val.date()
-                elif isinstance(d_val, date):
-                    current_date_obj = d_val
-                elif d_val:
-                    d_str = str(d_val).strip()
-                    try:
-                        current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
-                    except ValueError:
-                        try:
-                            current_date_obj = datetime.strptime(d_str, '%Y-%m-%d').date()
-                        except ValueError:
-                            pass
-                
-                is_latest = (current_date_obj == latest_date_obj) and (latest_date_obj is not None)
-                
+            for r in range(data_start_row, sig_row_curr):
+                d_v = ws_p.cell(row=r, column=6).value
+                curr_d = d_v.date() if isinstance(d_v, datetime) else d_v if isinstance(d_v, date) else None
+                is_latest = (curr_d == latest_d and latest_d is not None)
                 for c in range(1, 8):
                     cell = ws_p.cell(row=r, column=c)
-                    if isinstance(cell, MergedCell):
-                        continue
-                    if c == 7 and not is_latest:
-                        cell.value = None
-                    if c in [2, 3]:
-                        cell.alignment = LEFT_ALIGN
-                    else:
-                        cell.alignment = CENTER_ALIGN
-                    
-                    if is_latest:
-                        cell.fill = CREAM_YELLOW
-                        cell.font = Font(bold=True)
-                    else:
-                        cell.fill = NO_FILL
-                        cell.font = Font(bold=False)
-            
-            # --- ROW HEIGHT FIX ---
-            for r in range(data_start_row, sig_row_current):
+                    if isinstance(cell, MergedCell): continue
+                    if c == 7 and not is_latest: cell.value = None
+                    cell.fill = CREAM_YELLOW if is_latest else NO_FILL
+                    cell.font = Font(bold=is_latest)
                 ws_p.row_dimensions[r].height = 18
 
             wb_p.save(proj_file)
-            action_msg = "UPDATED (Override)" if is_override else "SAVED (New)"
-            self.trigger_feedback("success", f"SUCCESS! {part} {action_msg}")
-            self.update_status(f"Success! Data '{part}' has been {action_msg}, SORTED & Saved.", "#27ae60")
-        
-        except PermissionError:
-             self.trigger_feedback("error", "FILE OPEN! Please Close Excel.")
-             messagebox.showerror("File Error", f"Please close file {full_name}.xlsx before submitting!")
+            self.trigger_feedback("success", f"SUCCESS! {part} SAVED")
+            self.update_status(f"Success! '{part}' saved and sorted.", "#27ae60")
+
         except Exception as e:
-            self.trigger_feedback("error", "SYSTEM ERROR")
-            self.update_status(f"System Error: {str(e)}", COLOR_DANGER)
-            print(e)
+            self.trigger_feedback("error", "SYSTEM ERROR"); self.update_status(f"Error: {e}", COLOR_DANGER)
 
 if __name__ == "__main__":
     app = DCDEApp()
