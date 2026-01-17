@@ -55,6 +55,7 @@ for k, v in PROJ_MAP.items():
 ASSEMBLIES = ["Bogie", "Underframe", "Cabin", "Engine Hood", "Radiator Hood", "Muffler", "Gear Case", "Water Tank", "Battery Box", "Fuel Tank", "Sandbox"]
 ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno"]
 REMARKS_LIST = ["New", "Revised", "Re-Release", "-"]
+# BATCH_LIST dari kod anda
 BATCH_LIST = ["-", "1", "2", "N", "R"]
 MASTER_HEADERS = ["Project", "Country", "Batch", "Main Assembly", "Drawing Name", "Part Number", "Revision", "Total Sheets", "Engineer", "Date Approved", "Remarks"]
 
@@ -645,7 +646,7 @@ class DCDEApp(ctk.CTk):
             ws = wb[actual_sheet]
             duplicate_found = False
             for row in ws.iter_rows(min_row=3, values_only=True):
-                if not row or len(row) < 4:
+                if row and len(row) < 4:
                     continue 
                 excel_part = str(row[2]).strip().upper() if row[2] else ""
                 excel_rev = str(row[3]).strip() if row[3] is not None else ""
@@ -666,7 +667,7 @@ class DCDEApp(ctk.CTk):
             wb = load_workbook(master_path, read_only=True, data_only=True)
             ws = wb.active
             for row in ws.iter_rows(min_row=2, max_row=8000, values_only=True):
-                if not row or len(row) < 7:
+                if row and len(row) < 7:
                     continue
                 m_proj = str(row[0]).strip()
                 m_part = str(row[5]).strip().upper()
@@ -680,7 +681,74 @@ class DCDEApp(ctk.CTk):
             print(f"Master Check Error: {e}")
             return False
 
-    # --- SUBMIT LOGIC (MEKANISME ASAL 100%) ---
+    # --- FUNGSI BARU UNTUK PILIHAN DUPLICATE (ADJUSTMENT) ---
+    def show_duplicate_choice_dialog(self, part, rev, sql_data, excel_master_data, master_file_path):
+        """Dialog khas untuk membenarkan kemasukan ke SQL sahaja jika Excel pendua."""
+        top = ctk.CTkToplevel(self)
+        top.title("Duplicate Found")
+        top.geometry("480x320")
+        top.transient(self)
+        top.grab_set()
+
+        ctk.CTkLabel(top, text="DUPLICATE IN PROJECT EXCEL", font=("Segoe UI", 16, "bold"), text_color=COLOR_DANGER).pack(pady=15)
+        ctk.CTkLabel(top, text=f"Part No: {part} (Rev {rev})\nalready exists in the sub-project Excel file.", justify="center").pack(pady=5)
+        ctk.CTkLabel(top, text="What would you like to do?", font=("Segoe UI", 12, "bold")).pack(pady=15)
+
+        btn_frame = ctk.CTkFrame(top, fg_color="transparent")
+        btn_frame.pack(pady=10)
+
+        def on_re_release():
+            top.destroy()
+            try:
+                if not os.path.exists(master_file_path):
+                    wb_m = Workbook()
+                    ws_m = wb_m.active
+                    ws_m.title = "MasterList"
+                    ws_m.append(MASTER_HEADERS)
+                    wb_m.save(master_file_path)
+                
+                wb_m = load_workbook(master_file_path)
+                ws_m = wb_m.active
+                re_release_data = list(excel_master_data)
+                re_release_data[10] = "Re-Release"
+                
+                ws_m.append(re_release_data)
+                last_row_m = ws_m.max_row
+                for col_idx in range(1, len(re_release_data) + 1):
+                    cell_m = ws_m.cell(row=last_row_m, column=col_idx)
+                    if col_idx == 10:
+                        cell_m.number_format = 'DD/MM/YYYY'
+                    if col_idx in [4, 5, 6]:
+                        cell_m.alignment = LEFT_ALIGN
+                    else:
+                        cell_m.alignment = CENTER_ALIGN
+                    cell_m.border = THIN_BORDER
+                wb_m.save(master_file_path)
+                self.trigger_feedback("success", "Re-Release Logged (Master Only)")
+                self.update_status("Success! Re-Release logged in Master List only.", "#27ae60")
+            except Exception as e:
+                print(e)
+
+        def on_sql_only():
+            top.destroy()
+            try:
+                conn = psycopg2.connect(**DB_CONFIG)
+                cur = conn.cursor()
+                cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
+                conn.commit()
+                cur.close()
+                conn.close()
+                self.trigger_feedback("success", "Data Inserted into SQL Only")
+                self.update_status("Success! Data added to database only.", COLOR_SUCCESS)
+            except Exception as db_err:
+                messagebox.showerror("SQL Error", f"Failed to insert: {db_err}")
+
+        ctk.CTkButton(btn_frame, text="RE-RELEASE\n(MASTER ONLY)", fg_color=COLOR_PRIMARY, width=150, height=50, command=on_re_release).grid(row=0, column=0, padx=10)
+        ctk.CTkButton(btn_frame, text="SQL ONLY\n(DATABASE)", fg_color=COLOR_INFO, width=150, height=50, command=on_sql_only).grid(row=0, column=1, padx=10)
+        
+        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=80, command=top.destroy).pack(pady=15)
+
+    # --- SUBMIT LOGIC (MEKANISME ASAL 100% DENGAN ADJUSTMENT) ---
     def submit(self):
         full_name = self.proj_v.get()
         short_proj = PROJ_MAP.get(full_name)
@@ -736,49 +804,10 @@ class DCDEApp(ctk.CTk):
         sql_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_sql, self.remark_v.get()]
         excel_master_data = [short_proj, "Tanzania" if full_name == "H10 TRC" else "Malaysia", batch_val_excel, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get(), dt_obj, self.remark_v.get()]
 
-        # Duplicate Check
+        # --- ADJUSTMENT: Duplicate Check dengan SQL Only Option ---
         if self.check_duplicate_entry(proj_file, target_sheet_name, part, rev):
-            msg = (f"Data '{part}' (Rev {rev}) already exists in Project File.\n\n"
-                    "Is this a 'Re-Release' (Master Log Only)?\n"
-                    "YES: Log to Master List as 'Re-Release'. (Skip SQL/Sub File)\n"
-                    "NO: Cancel (Duplicate Error).")
-            
-            if messagebox.askyesno("Duplicate Found", msg):
-                try:
-                    if not os.path.exists(master_file_path):
-                        wb_m = Workbook()
-                        ws_m = wb_m.active
-                        ws_m.title = "MasterList"
-                        ws_m.append(MASTER_HEADERS)
-                        wb_m.save(master_file_path)
-                    
-                    wb_m = load_workbook(master_file_path)
-                    ws_m = wb_m.active
-                    re_release_data = list(excel_master_data)
-                    re_release_data[10] = "Re-Release" 
-                    
-                    ws_m.append(re_release_data)
-                    last_row_m = ws_m.max_row
-                    for col_idx in range(1, len(re_release_data) + 1):
-                        cell_m = ws_m.cell(row=last_row_m, column=col_idx)
-                        if col_idx == 10:
-                            cell_m.number_format = 'DD/MM/YYYY'
-                        if col_idx in [4, 5, 6]:
-                            cell_m.alignment = LEFT_ALIGN
-                        else:
-                            cell_m.alignment = CENTER_ALIGN
-                        cell_m.border = THIN_BORDER
-                    wb_m.save(master_file_path)
-                    self.trigger_feedback("success", "Re-Release Logged (Master Only)")
-                    self.update_status("Success! Re-Release logged in Master List only.", "#27ae60")
-                    return 
-                except Exception as e:
-                    print(e)
-                    return
-            else:
-                self.trigger_feedback("error", f"DUPLICATE: {part} exists!")
-                messagebox.showerror("Duplicate Error", f"DATA REJECTED!\n\nPart: {part}\nRev: {rev}\nAlready exists in Excel.")
-                return 
+            self.show_duplicate_choice_dialog(part, rev, sql_data, excel_master_data, master_file_path)
+            return
 
         # PROCEED AS NORMAL
         try:
@@ -1006,10 +1035,10 @@ class DCDEApp(ctk.CTk):
                 elif isinstance(d_val, date):
                     current_date_obj = d_val
                 elif d_val:
-                     d_str = str(d_val).strip()
-                     try:
-                         current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
-                     except ValueError:
+                    d_str = str(d_val).strip()
+                    try:
+                        current_date_obj = datetime.strptime(d_str, '%d/%m/%Y').date()
+                    except ValueError:
                         try:
                             current_date_obj = datetime.strptime(d_str, '%Y-%m-%d').date()
                         except ValueError:
