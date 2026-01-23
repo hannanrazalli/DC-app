@@ -326,7 +326,7 @@ class DCDEApp(ctk.CTk):
         else:
             messagebox.showinfo("Sync Success", f"All files successfully published to server.")
 
-    # --- HELPERS (Dikekalkan 100%) ---
+    # --- HELPERS ---
     def create_section_header(self, text, row):
         label = ctk.CTkLabel(self.content_frame, text=text, font=FONT_SECTION, text_color=COLOR_PRIMARY, anchor="w")
         label.grid(row=row, column=0, columnspan=2, padx=20, pady=(15, 5), sticky="w")
@@ -421,7 +421,6 @@ class DCDEApp(ctk.CTk):
                 self.assembly_v.set(ASSEMBLIES[0])
             self.eng_drop.configure(values=ENGINEER_LIST)
         else:
-            self.batch_v.set("-")
             self.assembly_drop.configure(values=ASSEMBLIES)
             if self.assembly_v.get() == "Wheel Press":
                 self.assembly_v.set(ASSEMBLIES[0])
@@ -442,34 +441,34 @@ class DCDEApp(ctk.CTk):
             w.delete(0, 'end')
         self.lbl_feedback.configure(text="", fg_color="transparent") 
 
-    # --- SEARCH LOGIC (Dikekalkan 100% Autofill & Latest Revision Logic) ---
+    # --- SEARCH LOGIC (PICK LATEST REVISION & HANDLE MALAYSIA/TANZANIA H10) ---
     def check_part_existence_thread(self):
         self.btn_check_part.configure(state="disabled", text="...")
         self.trigger_feedback("info", "Searching All Projects...")
         self.update_status("Searching globally...", COLOR_WARNING)
         part = self.part_ent.get().strip().upper()
-        threading.Thread(target=self._run_global_check, args=(part,), daemon=True).start()
+        threading.Thread(target=self._run_global_search, args=(part,), daemon=True).start()
 
-    def _run_global_check(self, part):
+    def _run_global_search(self, part):
         if not part:
             self.after(0, lambda: self._post_check([]))
             return
         matches = []
         master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
-        
         try:
+            # 1. Cari dalam Master List
             if os.path.exists(master_file_path):
                 wb = load_workbook(master_file_path, read_only=True)
                 ws = wb.active
                 for row in ws.iter_rows(min_row=2, max_row=8000, values_only=True): 
                     if row and len(row) >= 9 and str(row[5]).strip().upper() == part:
                         matches.append({
-                            'source': 'MASTER LIST', 
-                            'project': row[0], 'batch': row[2], 'assembly': row[3],
+                            'project': row[0], 'country': row[1], 'batch': row[2], 'assembly': row[3],
                             'draw': row[4], 'part': row[5], 'rev': row[6], 'total': row[7], 'eng': row[8]
                         })
                 wb.close()
-
+            
+            # 2. Cari dalam Local Project Files
             for ui_proj_name in PROJECTS:
                 short_proj_code = PROJ_MAP.get(ui_proj_name)
                 proj_file = os.path.join(BASE_PATH, f"{ui_proj_name}.xlsx")
@@ -481,19 +480,19 @@ class DCDEApp(ctk.CTk):
                             if row and len(row) >= 5 and str(row[2]).strip().upper() == part:
                                 if not any(m['project'] == short_proj_code and str(m['rev']) == str(row[3]) for m in matches):
                                     matches.append({
-                                        'source': f'FILE: {ui_proj_name}', 
-                                        'project': short_proj_code, 'batch': "-", 'assembly': sheet_name, 
+                                        'project': short_proj_code, 
+                                        'country': "Tanzania" if "TRC" in ui_proj_name else "Malaysia",
+                                        'batch': "-", 'assembly': sheet_name, 
                                         'draw': row[1], 'part': row[2], 'rev': row[3], 'total': row[4], 'eng': "-"
                                     })
                     wb.close()
-        except Exception as e:
-            print(f"Error checking: {str(e)}")
+        except Exception as e: print(f"Search Error: {e}")
         
         # LOGIK: Susun hasil supaya Revision terbaru (tertinggi) berada di atas
-        def sort_key(m):
+        def get_rev_num(m):
             try: return int(m['rev'])
             except: return -1
-        matches.sort(key=sort_key, reverse=True)
+        matches.sort(key=get_rev_num, reverse=True)
         
         self.after(0, lambda: self._post_check(matches, part))
 
@@ -504,7 +503,7 @@ class DCDEApp(ctk.CTk):
              if part_searched: self.trigger_feedback("info", "Part Not Found")
              return
 
-        # Buat senarai unik berdasarkan Project + Drawing Name (Revisi terbaru sudah di atas hasil sorting tadi)
+        # Buat senarai unik berdasarkan Project + Drawing Name
         unique_results = []
         seen_keys = set()
         for m in matches:
@@ -523,26 +522,21 @@ class DCDEApp(ctk.CTk):
         top.title("Record Found")
         top.geometry("450x400")
         top.transient(self); top.grab_set()
-        
         ctk.CTkLabel(top, text="EXISTING RECORD FOUND", font=("Segoe UI", 16, "bold"), text_color=COLOR_SUCCESS).pack(pady=15)
         info_frame = ctk.CTkFrame(top, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=10)
         info_frame.pack(fill="x", padx=20, pady=10)
         info_frame.grid_columnconfigure(1, weight=1)
-
         def add_row(r, label, value):
             ctk.CTkLabel(info_frame, text=label, font=("Segoe UI", 12), text_color="gray", anchor="w").grid(row=r, column=0, padx=(15, 5), pady=5, sticky="w")
             ctk.CTkLabel(info_frame, text=str(value), font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT, anchor="w").grid(row=r, column=1, padx=5, pady=5, sticky="w")
-
         add_row(0, "Project:", m['project'])
         add_row(1, "Assembly:", m['assembly'])
         add_row(2, "Drawing:", m['draw'])
         add_row(3, "Latest Rev:", m['rev'])
         add_row(4, "Part No:", m['part'])
-
         ctk.CTkLabel(top, text="Do you want to Auto-Fill this data?", font=("Segoe UI", 12)).pack(pady=(15, 10))
         btn_f = ctk.CTkFrame(top, fg_color="transparent")
         btn_f.pack(pady=10)
-        
         ctk.CTkButton(btn_f, text="YES (Auto-Fill)", fg_color=COLOR_SUCCESS, width=120, command=lambda: [self.autofill_form(m), top.destroy()]).pack(side="left", padx=10)
         ctk.CTkButton(btn_f, text="CANCEL", fg_color=COLOR_DANGER, width=80, command=top.destroy).pack(side="left", padx=10)
 
@@ -554,25 +548,34 @@ class DCDEApp(ctk.CTk):
         h_f = ctk.CTkFrame(top, fg_color=COLOR_PRIMARY, height=70, corner_radius=0)
         h_f.pack(fill="x"); ctk.CTkLabel(h_f, text="SELECT DATA (Sorted by Latest Revision)", font=("Segoe UI", 18, "bold"), text_color="white").pack(pady=15)
         scroll = ctk.CTkScrollableFrame(top, fg_color="transparent"); scroll.pack(fill="both", expand=True, padx=20, pady=10)
-        
         for m in matches:
-            card = ctk.CTkFrame(scroll, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=8)
-            card.pack(fill="x", pady=8, padx=5, ipady=5)
+            card = ctk.CTkFrame(scroll, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=8); card.pack(fill="x", pady=8, padx=5, ipady=5)
             row1 = ctk.CTkFrame(card, fg_color="transparent"); row1.pack(fill="x", padx=15, pady=(8, 2))
-            ctk.CTkLabel(row1, text=f"PROJECT: {m['project']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(side="left")
+            ctk.CTkLabel(row1, text=f"PROJECT: {m['project']} ({m.get('country', 'N/A')})", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(side="left")
             ctk.CTkLabel(row1, text=f"{m['part']}", font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).pack(side="right")
             row2 = ctk.CTkFrame(card, fg_color="transparent"); row2.pack(fill="x", padx=15, pady=2)
             ctk.CTkLabel(row2, text=f"{m['draw']}", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(anchor="w")
             row3 = ctk.CTkFrame(card, fg_color="transparent"); row3.pack(fill="x", padx=15, pady=(5, 10))
             ctk.CTkLabel(row3, text=f"Assy: {m['assembly']} | Rev: {m['rev']}", font=("Segoe UI", 11), text_color="gray").pack(side="left")
             ctk.CTkButton(row3, text="SELECT", width=90, fg_color=COLOR_SUCCESS, command=lambda data=m: [self.autofill_form(data), top.destroy()]).pack(side="right")
-            
         ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=120, command=top.destroy).pack(pady=15)
 
     def autofill_form(self, data):
+        # ADJUSTMENT: Handle pemetaan BeraPit vs TRC berdasarkan kod H10 & Country
         sc = str(data.get('project')).strip()
-        ui = REVERSE_PROJ_MAP.get(sc)
-        if ui: self.proj_v.set(ui); self.update_logic(ui) 
+        country_info = str(data.get('country', '')).upper()
+        if sc == "H10":
+            if "TANZANIA" in country_info:
+                ui_name = "H10 TRC"
+            else:
+                ui_name = "H10 BeraPit"
+        else:
+            ui_name = REVERSE_PROJ_MAP.get(sc)
+
+        if ui_name:
+            self.proj_v.set(ui_name)
+            self.update_logic(ui_name) 
+
         if data.get('batch'):
             bv = str(data.get('batch'))
             self.batch_v.set("-" if bv in [None, "", "None"] else bv)
@@ -597,7 +600,6 @@ class DCDEApp(ctk.CTk):
         except: return False 
 
     def check_master_duplicate(self, current_payload):
-        """Menyemak duplicate di Master List berdasarkan semua kolum kritikal (Project hingga Engineer)."""
         master_path = os.path.join(BASE_PATH, MASTER_FILE)
         if not os.path.exists(master_path): return False
         try:
@@ -605,7 +607,7 @@ class DCDEApp(ctk.CTk):
             for row in ws.iter_rows(min_row=2, max_row=8000, values_only=True):
                 if not row or len(row) < 9: continue
                 match = True
-                for i in range(9): # Semak Project, Country, Batch, Assy, Draw, Part, Rev, Total, Eng
+                for i in range(9): 
                     if str(row[i]).strip().upper() != str(current_payload[i]).strip().upper():
                         match = False; break
                 if match: wb.close(); return True 
@@ -613,13 +615,11 @@ class DCDEApp(ctk.CTk):
         except: return False
 
     def show_duplicate_choice_dialog(self, part, rev, sql_data, excel_master_data, master_file_path):
-        """Popup dialog 3 pilihan jika dikesan pendua dalam fail Excel projek."""
         top = ctk.CTkToplevel(self); top.title("Action Required"); top.geometry("480x320")
         top.transient(self); top.grab_set()
         ctk.CTkLabel(top, text="DUPLICATE IN PROJECT EXCEL", font=("Segoe UI", 16, "bold"), text_color=COLOR_DANGER).pack(pady=15)
         ctk.CTkLabel(top, text=f"Part No: {part} (Rev {rev}) already exists in sub-project.").pack(pady=5)
         btn_f = ctk.CTkFrame(top, fg_color="transparent"); btn_f.pack(pady=15)
-        
         def h_master():
             top.destroy()
             try:
@@ -633,20 +633,28 @@ class DCDEApp(ctk.CTk):
                     c.border = THIN_BORDER
                 wb.save(master_file_path); self.trigger_feedback("success", "Logged to Master Only")
             except: pass
-
         def h_sql():
             top.destroy()
             try:
                 conn = psycopg2.connect(**DB_CONFIG); cur = conn.cursor()
-                cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
-                conn.commit(); cur.close(); conn.close(); self.trigger_feedback("success", "Inserted to SQL Only")
-            except: pass
-
+                cur.execute("""
+                    SELECT 1 FROM project_data 
+                    WHERE project_name = %s AND country = %s AND batch = %s 
+                    AND main_assembly = %s AND drawing_name = %s AND part_number = %s 
+                    AND revision = %s AND total_sheets = %s AND engineer = %s
+                """, (sql_data[0], sql_data[1], sql_data[2], sql_data[3], sql_data[4], sql_data[5], sql_data[6], sql_data[7], sql_data[8]))
+                if cur.fetchone():
+                    self.update_status("Data already exists in SQL.", COLOR_WARNING)
+                else:
+                    cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
+                    conn.commit(); self.trigger_feedback("success", "SQL Only Inserted")
+                cur.close(); conn.close()
+            except Exception as db_e: messagebox.showerror("DB Error", str(db_e))
         ctk.CTkButton(btn_f, text="RE-RELEASE\n(MASTER ONLY)", fg_color=COLOR_PRIMARY, width=150, height=50, command=h_master).grid(row=0, column=0, padx=10)
         ctk.CTkButton(btn_f, text="SQL ONLY\n(DATABASE)", fg_color=COLOR_INFO, width=150, height=50, command=h_sql).grid(row=0, column=1, padx=10)
         ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=80, command=top.destroy).pack(pady=15)
 
-    # --- SUBMIT LOGIC (MEKANISME PANJANG / VERBOSE DIKEKALKAN) ---
+    # --- SUBMIT LOGIC (VERBOSE VERSION) ---
     def submit(self):
         full_name = self.proj_v.get(); short_proj = PROJ_MAP.get(full_name)
         proj_file = os.path.join(BASE_PATH, f"{full_name}.xlsx"); master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
@@ -674,12 +682,20 @@ class DCDEApp(ctk.CTk):
             self.show_duplicate_choice_dialog(part, rev, sql_data, excel_master_data, master_file_path); return
 
         try:
-            # SQL Insert
+            # SQL Insert (DENGAN SEMAKAN PENDUA 9 KOLUM)
             try:
                 conn = psycopg2.connect(**DB_CONFIG); cur = conn.cursor()
-                cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
-                conn.commit(); cur.close(); conn.close()
-            except: pass
+                cur.execute("""
+                    SELECT 1 FROM project_data 
+                    WHERE project_name = %s AND country = %s AND batch = %s 
+                    AND main_assembly = %s AND drawing_name = %s AND part_number = %s 
+                    AND revision = %s AND total_sheets = %s AND engineer = %s
+                """, (short_proj, country, batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get()))
+                if not cur.fetchone():
+                    cur.execute("INSERT INTO project_data (project_name, country, batch, main_assembly, drawing_name, part_number, revision, total_sheets, engineer, date_approved, remarks) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", sql_data)
+                    conn.commit()
+                cur.close(); conn.close()
+            except Exception as e: print(f"DB Error: {e}")
 
             # Master List update
             if not os.path.exists(master_file_path):
@@ -687,9 +703,8 @@ class DCDEApp(ctk.CTk):
             
             add_to_master = True; final_master_data = list(excel_master_data)
             if self.check_master_duplicate(excel_master_data):
-                if messagebox.askyesno("Master Log", "Record matches Master exactly. Re-Release?"): final_master_data[10] = "Re-Release"
+                if messagebox.askyesno("Master Log", "Exact record matches Master List. Re-Release?"): final_master_data[10] = "Re-Release"
                 else: add_to_master = False
-            
             if add_to_master:
                 wb_m = load_workbook(master_file_path); ws_m = wb_m.active; ws_m.append(final_master_data); lr = ws_m.max_row
                 for idx in range(1, 12):
@@ -699,7 +714,7 @@ class DCDEApp(ctk.CTk):
                     cell.border = THIN_BORDER
                 wb_m.save(master_file_path)
 
-            # LOGIK PANJANG: Update Fail Projek
+            # Fail Projek Update (Sorting & Highlighting Original)
             wb_p = load_workbook(proj_file)
             actual_sheet_name = next((s for s in wb_p.sheetnames if s.strip().lower() == target_sheet_name.lower()), None)
             if not actual_sheet_name:
@@ -709,13 +724,10 @@ class DCDEApp(ctk.CTk):
                 ws_p = wb_p[actual_sheet_name]; data_start_row = 3
                 for r in range(1, 11):
                     if "part number" in str(ws_p.cell(row=r, column=3).value or "").lower(): data_start_row = r + 1; break
-            
             sig_row = next((r for r in range(data_start_row, ws_p.max_row + 50) if any("issued by" in str(ws_p.cell(row=r, column=c).value or "").lower() for c in range(1, 6))), None)
             if not sig_row: sig_row = max(ws_p.max_row + 2, 4); ws_p.cell(row=sig_row, column=1, value="Drawing issued by:-")
-
             target_row = next((r for r in range(data_start_row, sig_row) if str(ws_p.cell(row=r, column=3).value or "").strip().upper() == part), None)
             is_override = target_row is not None; remarks_to_save = "Revised" if is_override else self.remark_v.get()
-            
             if not target_row:
                 l_data_row = data_start_row - 1
                 for r in range(max(data_start_row, sig_row - 1), data_start_row - 1, -1):
@@ -723,7 +735,6 @@ class DCDEApp(ctk.CTk):
                 target_row = l_data_row + 1; ws_p.insert_rows(target_row)
                 for r in range(ws_p.max_row, target_row, -1):
                     if (r-1) in ws_p.row_dimensions: ws_p.row_dimensions[r].height = ws_p.row_dimensions[r-1].height
-            
             sl_no = target_row - data_start_row + 1 if not is_override else ws_p.cell(row=target_row, column=1).value
             final_data = [sl_no, draw, part, rev, total, dt_obj, remarks_to_save]
             for col, val in enumerate(final_data, 1):
@@ -733,8 +744,6 @@ class DCDEApp(ctk.CTk):
                     if col == 6: cell.number_format = 'DD/MM/YYYY'
                     cell.alignment = LEFT_ALIGN if idx in [2, 3] else CENTER_ALIGN
                     cell.border = THIN_BORDER
-
-            # SORTING (LOGIK ASAL PANJANG)
             sig_row_curr = next((r for r in range(data_start_row, ws_p.max_row + 10) if any("issued by" in str(ws_p.cell(row=r, column=c).value or "").lower() for c in range(1, 6))), ws_p.max_row + 1)
             data_matrix = []
             if sig_row_curr - 1 >= data_start_row:
@@ -750,8 +759,6 @@ class DCDEApp(ctk.CTk):
                         if c == 6: cell.number_format = 'DD/MM/YYYY'
                         cell.alignment = LEFT_ALIGN if c in [2, 3] else CENTER_ALIGN
                         cell.border = THIN_BORDER
-
-            # HIGHLIGHTING (LOGIK ASAL PANJANG)
             dates_objs = []
             for r in range(data_start_row, sig_row_curr):
                 d_v = ws_p.cell(row=r, column=6).value
@@ -768,9 +775,9 @@ class DCDEApp(ctk.CTk):
                     cell.fill = CREAM_YELLOW if is_latest else NO_FILL
                     cell.font = Font(bold=is_latest)
                 ws_p.row_dimensions[r].height = 18
-
             wb_p.save(proj_file); self.trigger_feedback("success", "Saved!"); self.update_status(f"Saved: {part}", COLOR_SUCCESS)
         except Exception as e: self.update_status(f"Error: {e}", COLOR_DANGER)
 
 if __name__ == "__main__":
-    app = DCDEApp(); app.mainloop()
+    app = DCDEApp();
+    app.mainloop()
