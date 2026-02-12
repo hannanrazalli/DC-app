@@ -190,6 +190,10 @@ class DCDEApp(ctk.CTk):
         self.part_ent = ctk.CTkEntry(self.part_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. H10-100-001")
         self.part_ent.pack(side="left", fill="x", expand=True, padx=(0, 5))
         self.part_ent.bind("<KeyRelease>", lambda e: [self.on_part_input(e), self.clear_field_error("part")])
+        
+        # ADJUSTMENT: Bind Enter key for search in Data Entry tab
+        self.part_ent.bind("<Return>", lambda e: self.check_part_existence_thread())
+        
         self.btn_check_part = ctk.CTkButton(self.part_frame, text="Search", width=60, height=32, 
                                             fg_color="#7f8c8d", hover_color="#95a5a6", 
                                             command=self.check_part_existence_thread)
@@ -224,9 +228,9 @@ class DCDEApp(ctk.CTk):
         self.add_input_field(label="Date Approved", row=11, col=1, parent=self.tab_entry)
         self.date_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
         self.date_frame.grid(row=12, column=1, padx=20, pady=(5, 10), sticky="w")
-        self.date_picker = DateEntry(self.date_frame, width=20, background=COLOR_PRIMARY, foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd', font=("Arial", 11))
+        self.date_picker = DateEntry(self.date_frame, width=20, background=COLOR_PRIMARY, date_pattern='yyyy-mm-dd')
         self.date_picker.pack(side="left", padx=(0, 15), ipady=3)
-        ctk.CTkButton(self.date_frame, text="Set Today", width=100, height=30, fg_color="#95a5a6", hover_color="#7f8c8d", command=self.set_today).pack(side="left")
+        ctk.CTkButton(self.date_frame, text="Set Today", width=100, height=30, fg_color="#95a5a6", command=self.set_today).pack(side="left")
 
         self.add_input_field(label="Remarks", row=13, col=0, parent=self.tab_entry)
         self.remark_v = ctk.StringVar(value="New")
@@ -260,6 +264,9 @@ class DCDEApp(ctk.CTk):
         self.pdf_search_ent = ctk.CTkEntry(self.search_draw_frame, font=("Segoe UI", 16), height=45, placeholder_text="e.g. H10-100-001")
         self.pdf_search_ent.grid(row=1, column=0, sticky="ew", padx=(0, 15))
         self.pdf_search_ent.bind("<KeyRelease>", lambda e: self.to_uppercase(e, self.pdf_search_ent))
+        
+        # ADJUSTMENT: Bind Enter key for search in View Drawings tab
+        self.pdf_search_ent.bind("<Return>", lambda e: self.search_pdf_thread())
 
         self.btn_search_pdf = ctk.CTkButton(self.search_draw_frame, text="SEARCH DRAWING", fg_color=COLOR_ACCENT, 
                                            height=45, width=200, font=("Segoe UI", 13, "bold"), command=self.search_pdf_thread)
@@ -372,12 +379,12 @@ class DCDEApp(ctk.CTk):
                 sc = PROJ_MAP.get(ui_proj); p_f = os.path.join(BASE_PATH, f"{ui_proj}.xlsx")
                 if os.path.exists(p_f):
                     wb = load_workbook(p_f, read_only=True)
-                    for sn in wb.sheetnames:
-                        ws = wb[sn]
+                    for sheet_name in wb.sheetnames:
+                        ws = wb[sheet_name]
                         for row in ws.iter_rows(min_row=3, values_only=True): 
                             if row and len(row) >= 5 and str(row[2]).strip().upper() == part:
                                 if not any(m['project'] == sc and str(m['rev']) == str(row[3]) for m in matches):
-                                    matches.append({'project': sc, 'country': "Tanzania" if "TRC" in ui_proj else "Malaysia", 'batch': "-", 'assembly': sn, 'draw': row[1], 'part': row[2], 'rev': row[3], 'total': row[4], 'eng': "-"})
+                                    matches.append({'project': sc, 'country': "Tanzania" if "TRC" in ui_proj else "Malaysia", 'batch': "-", 'assembly': sheet_name, 'draw': row[1], 'part': row[2], 'rev': row[3], 'total': row[4], 'eng': "-"})
                     wb.close()
         except: pass
         
@@ -399,34 +406,64 @@ class DCDEApp(ctk.CTk):
         else: self.open_selection_window(unique_results)
 
     def show_match_found_dialog(self, m):
-        top = ctk.CTkToplevel(self); top.title("Record Found"); top.geometry("450x400"); top.transient(self); top.grab_set()
+        """Pop-up untuk satu rekod dijumpai dengan Auto-fit & Auto-wrap."""
+        top = ctk.CTkToplevel(self); top.title("Record Found"); top.geometry("650x450"); top.transient(self); top.grab_set()
         ctk.CTkLabel(top, text="EXISTING RECORD FOUND", font=("Segoe UI", 16, "bold"), text_color=COLOR_SUCCESS).pack(pady=15)
         info_frame = ctk.CTkFrame(top, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=10); info_frame.pack(fill="x", padx=20, pady=10)
         
-        ctk.CTkLabel(info_frame, text="Project:", font=("Segoe UI", 12), text_color="gray").grid(row=0, column=0, padx=15, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text=m['project'], font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text="Assembly:", font=("Segoe UI", 12), text_color="gray").grid(row=1, column=0, padx=15, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text=m['assembly'], font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text="Drawing:", font=("Segoe UI", 12), text_color="gray").grid(row=2, column=0, padx=15, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text=m['draw'], font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text="Revision:", font=("Segoe UI", 12), text_color="gray").grid(row=3, column=0, padx=15, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text=m['rev'], font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text="Part No:", font=("Segoe UI", 12), text_color="gray").grid(row=4, column=0, padx=15, pady=5, sticky="w")
-        ctk.CTkLabel(info_frame, text=m['part'], font=("Segoe UI", 14, "bold"), text_color=COLOR_ACCENT).grid(row=4, column=1, padx=5, pady=5, sticky="w")
+        # Row-row maklumat
+        def add_row_info(r, lbl, val, is_bold=True, wrap=0):
+            ctk.CTkLabel(info_frame, text=lbl, font=("Segoe UI", 12), text_color="gray").grid(row=r, column=0, padx=15, pady=5, sticky="w")
+            label_val = ctk.CTkLabel(info_frame, text=str(val), font=("Segoe UI", 14, "bold" if is_bold else "normal"), text_color=COLOR_ACCENT, wraplength=wrap if wrap > 0 else 0, justify="left", anchor="w")
+            label_val.grid(row=r, column=1, padx=5, pady=5, sticky="w")
 
-        ctk.CTkButton(top, text="YES (Auto-Fill)", fg_color=COLOR_SUCCESS, command=lambda: [self.autofill_form(m), top.destroy()]).pack(pady=10)
-        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, command=top.destroy).pack(pady=5)
+        add_row_info(0, "Project:", m['project'])
+        add_row_info(1, "Assembly:", m['assembly'])
+        add_row_info(2, "Drawing:", m['draw'], wrap=450) # Auto-wrap for long drawing titles
+        add_row_info(3, "Revision:", m['rev'])
+        add_row_info(4, "Part No:", m['part'])
+
+        ctk.CTkButton(top, text="YES (Auto-Fill)", fg_color=COLOR_SUCCESS, height=40, font=("Segoe UI", 12, "bold"), command=lambda: [self.autofill_form(m), top.destroy()]).pack(pady=10)
+        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=100, command=top.destroy).pack(pady=5)
 
     def open_selection_window(self, matches):
-        top = ctk.CTkToplevel(self); top.title("Search Results"); top.geometry("750x550"); top.transient(self); top.grab_set()
+        """Pop-up untuk banyak rekod dijumpai dengan Auto-fit, Auto-wrap & LATEST Highlight."""
+        top = ctk.CTkToplevel(self); top.title("Search Results"); top.geometry("850x600"); top.transient(self); top.grab_set()
         h = ctk.CTkFrame(top, fg_color=COLOR_PRIMARY, height=70, corner_radius=0); h.pack(fill="x")
         ctk.CTkLabel(h, text="SELECT DATA (Sorted by Latest Revision)", font=("Segoe UI", 18, "bold"), text_color="white").pack(pady=15)
         s = ctk.CTkScrollableFrame(top, fg_color="transparent"); s.pack(fill="both", expand=True, padx=20, pady=10)
-        for m in matches:
-            c = ctk.CTkFrame(s, fg_color="white", border_width=2, border_color="#BDC3C7", corner_radius=8); c.pack(fill="x", pady=8, padx=5, ipady=5)
-            ctk.CTkLabel(c, text=f"PROJECT: {m['project']} ({m.get('country', 'N/A')})", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT).pack(side="left", padx=10)
-            ctk.CTkButton(c, text="SELECT", width=90, fg_color=COLOR_SUCCESS, command=lambda data=m: [self.autofill_form(data), top.destroy()]).pack(side="right", padx=10)
-        ctk.CTkButton(top, text="CANCEL", fg_color=COLOR_DANGER, width=120, command=top.destroy).pack(pady=15)
+        
+        for i, m in enumerate(matches):
+            is_latest = (i == 0) # Sorted by rev DESC, so index 0 is latest
+            card_border_color = COLOR_SUCCESS if is_latest else "#BDC3C7"
+            card_border_width = 3 if is_latest else 1
+            
+            c = ctk.CTkFrame(s, fg_color="white", border_width=card_border_width, border_color=card_border_color, corner_radius=10)
+            c.pack(fill="x", pady=8, padx=5, ipady=5)
+            
+            # Left side content
+            content_f = ctk.CTkFrame(c, fg_color="transparent")
+            content_f.pack(side="left", padx=15, pady=10, fill="both", expand=True)
+            
+            # Badge LATEST if applicable
+            if is_latest:
+                badge_f = ctk.CTkFrame(content_f, fg_color=COLOR_SUCCESS, corner_radius=5)
+                badge_f.pack(anchor="w", pady=(0, 5))
+                ctk.CTkLabel(badge_f, text=" LATEST REVISION ", font=("Segoe UI", 10, "bold"), text_color="white").pack(padx=5, pady=2)
+            
+            # Project & Country
+            ctk.CTkLabel(content_f, text=f"PROJECT: {m['project']} ({m.get('country', 'N/A')})", font=("Segoe UI", 13, "bold"), text_color=COLOR_ACCENT, anchor="w").pack(fill="x")
+            
+            # Drawing Title (Wrapped)
+            ctk.CTkLabel(content_f, text=f"DRAWING: {m['draw']}", font=("Segoe UI", 12, "bold"), text_color=COLOR_PRIMARY, wraplength=550, justify="left", anchor="w").pack(fill="x", pady=(2, 0))
+            
+            # Assembly & Revision
+            ctk.CTkLabel(content_f, text=f"Assy: {m['assembly']}   |   Part: {m['part']}   |   Rev: {m['rev']}", font=("Segoe UI", 11), text_color="gray", anchor="w").pack(fill="x", pady=(2, 0))
+
+            # Select Button
+            ctk.CTkButton(c, text="SELECT", width=100, height=40, fg_color=COLOR_SUCCESS, font=("Segoe UI", 11, "bold"), command=lambda data=m: [self.autofill_form(data), top.destroy()]).pack(side="right", padx=15)
+            
+        ctk.CTkButton(top, text="CANCEL / CLOSE", fg_color=COLOR_DANGER, width=150, height=40, font=("Segoe UI", 12, "bold"), command=top.destroy).pack(pady=20)
 
     def autofill_form(self, data):
         sc = str(data.get('project')).strip(); ci = str(data.get('country', '')).upper()
@@ -476,15 +513,17 @@ class DCDEApp(ctk.CTk):
         def h_master():
             top.destroy()
             try:
-                wb = load_workbook(master_file_path); ws = wb.active
-                d = list(excel_master_data); d[10] = "Re-Release"; ws.append(d)
-                lr = ws.max_row
+                if not os.path.exists(master_file_path):
+                    wb_m = Workbook(); ws_m = wb_m.active; ws_m.title = "MasterList"; ws_m.append(MASTER_HEADERS); wb_m.save(master_file_path)
+                wb_m = load_workbook(master_file_path); ws_m = wb_m.active
+                re_release_data = list(excel_master_data); re_release_data[10] = "Re-Release" 
+                l_row = ws_m.max_row
                 for idx in range(1, 12):
-                    c = ws.cell(row=lr, column=idx)
+                    c = ws_m.cell(row=l_row, column=idx)
                     if idx == 10: c.number_format = 'DD/MM/YYYY'
                     c.alignment = LEFT_ALIGN if idx in [4, 5, 6] else CENTER_ALIGN
                     c.border = THIN_BORDER
-                wb.save(master_file_path); self.trigger_feedback("success", "Logged to Master Only")
+                wb_m.save(master_file_path); self.trigger_feedback("success", "Logged to Master Only")
             except Exception as e: messagebox.showerror("Error", str(e))
         def h_sql():
             top.destroy()
@@ -510,12 +549,14 @@ class DCDEApp(ctk.CTk):
         full_name = self.proj_v.get(); short_proj = PROJ_MAP.get(full_name)
         proj_file = os.path.join(BASE_PATH, f"{full_name}.xlsx"); master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
         draw = self.draw_ent.get().upper().strip(); part = self.part_ent.get().upper().strip(); rev_str = self.rev_ent.get().strip(); total_str = self.total_ent.get().strip()
+        
         has_err = False
         if not draw: self.err_draw.configure(text="* Sila isi Drawing Name"); has_err = True
         if not part: self.err_part.configure(text="* Sila isi Part Number"); has_err = True
         if not rev_str: self.err_rev.configure(text="* Sila isi Revision"); has_err = True
         if not total_str: self.err_total.configure(text="* Sila isi Total Sheets"); has_err = True
         if has_err: self.trigger_feedback("error", "Isi ruangan bertanda merah!"); return
+        
         try: rev, total = int(rev_str), int(total_str)
         except: self.trigger_feedback("error", "Revision/Total must be numbers"); return
 
@@ -707,50 +748,44 @@ class DCDEApp(ctk.CTk):
 
     def show_pdf_selection_dialog(self, results):
         """Dialog untuk memilih drawing PDF dengan butiran lengkap dan highlight LATEST."""
-        top = ctk.CTkToplevel(self); top.title("Drawing Records Found"); top.geometry("700x550"); top.transient(self); top.grab_set()
+        top = ctk.CTkToplevel(self); top.title("Drawing Records Found"); top.geometry("850x600"); top.transient(self); top.grab_set()
         
         ctk.CTkLabel(top, text="SIGNED DRAWINGS FOUND", font=("Segoe UI", 18, "bold"), text_color=COLOR_ACCENT).pack(pady=15)
         ctk.CTkLabel(top, text="Select a record to open the Signed Copy PDF:", font=("Segoe UI", 12)).pack(pady=5)
 
-        scroll = ctk.CTkScrollableFrame(top, width=640, height=350, fg_color="transparent")
+        scroll = ctk.CTkScrollableFrame(top, width=780, height=400, fg_color="transparent")
         scroll.pack(padx=20, pady=10, fill="both", expand=True)
 
         for res in results:
             is_latest = res["type"] == "Latest"
-            # Highlight border if Latest
             card_border_color = COLOR_SUCCESS if is_latest else "#BDC3C7"
             card_border_width = 3 if is_latest else 1
             
             card = ctk.CTkFrame(scroll, fg_color="white", border_width=card_border_width, border_color=card_border_color, corner_radius=10)
             card.pack(fill="x", pady=8, padx=5)
             
-            # Info Layout
             main_f = ctk.CTkFrame(card, fg_color="transparent")
             main_f.pack(side="left", padx=15, pady=12, fill="both", expand=True)
             
-            # Badge LATEST if applicable
             if is_latest:
                 badge_f = ctk.CTkFrame(main_f, fg_color=COLOR_SUCCESS, corner_radius=5)
                 badge_f.pack(anchor="w", pady=(0, 5))
                 ctk.CTkLabel(badge_f, text=" LATEST REVISION ", font=("Segoe UI", 10, "bold"), text_color="white").pack(padx=5, pady=2)
 
-            # Row 1: Part Number & Drawing Name
             row1 = ctk.CTkFrame(main_f, fg_color="transparent")
             row1.pack(fill="x")
             ctk.CTkLabel(row1, text=res["part"], font=("Segoe UI", 14, "bold"), text_color=COLOR_PRIMARY).pack(side="left")
-            ctk.CTkLabel(row1, text=f"  |  {res['draw']}", font=("Segoe UI", 13), text_color=COLOR_TEXT).pack(side="left")
+            title_lbl = ctk.CTkLabel(row1, text=f"  |  {res['draw']}", font=("Segoe UI", 13), text_color=COLOR_TEXT, wraplength=450, justify="left", anchor="w")
+            title_lbl.pack(side="left", fill="x", expand=True)
 
-            # Row 2: Project & Assembly
             row2 = ctk.CTkFrame(main_f, fg_color="transparent")
             row2.pack(fill="x", pady=(2, 0))
             ctk.CTkLabel(row2, text=f"Project: {res['project']}   •   Assembly: {res['assy']}", font=("Segoe UI", 11), text_color="gray").pack(side="left")
 
-            # Row 3: Revision & Total Sheets
             row3 = ctk.CTkFrame(main_f, fg_color="transparent")
             row3.pack(fill="x")
             ctk.CTkLabel(row3, text=f"Revision: {res['rev']}   •   Sheets: {res['total']}", font=("Segoe UI", 11, "bold"), text_color=COLOR_ACCENT).pack(side="left")
 
-            # Open Button
             btn_color = COLOR_SUCCESS if is_latest else "#95a5a6"
             ctk.CTkButton(card, text="OPEN PDF", width=110, height=40, fg_color=btn_color, font=("Segoe UI", 12, "bold"), 
                           command=lambda p=res["path"]: os.startfile(p)).pack(side="right", padx=15)
