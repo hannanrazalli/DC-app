@@ -35,8 +35,10 @@ FILE_MAPPING = {
 }
 
 # --- PDF DRAWING CONFIGURATION ---
-# Root folder untuk semua drawings
 BASE_DRAWINGS_PATH = r"Y:\[04] ENGINEERING TEAM\[98] DOCUMENT CONTROL\[00] 2D Drawings - Signed Copy"
+
+# --- TRANSMITTAL CONFIGURATION (FUNGSI BARU) ---
+TRANSMITTAL_FILE_PATH = r"Y:\[04] ENGINEERING TEAM\[98] DOCUMENT CONTROL\[05] Transmittal Form DC\DC Transmittal List.xlsx"
 
 # PROJECT CONFIGURATION
 PROJECTS = ["H10 TRC", "H10 BeraPit", "M10", "N10", "G10", "Wheel Press Machine"]
@@ -580,6 +582,7 @@ class DCDEApp(ctk.CTk):
             self.show_duplicate_choice_dialog(part, rev, sql_data, excel_master_data, master_file_path); return
 
         try:
+            # SQL Insert
             conn = psycopg2.connect(**DB_CONFIG); cur = conn.cursor()
             cur.execute("""SELECT 1 FROM project_data WHERE project_name=%s AND country=%s AND batch=%s AND main_assembly=%s AND drawing_name=%s AND part_number=%s AND revision=%s AND total_sheets=%s AND engineer=%s""", 
                         (short_proj, country, batch_val, self.assembly_v.get(), draw, part, rev, total, self.eng_v.get()))
@@ -666,6 +669,39 @@ class DCDEApp(ctk.CTk):
                 ws_p.row_dimensions[r].height = 18
 
             wb_p.save(proj_file)
+
+            # --- TRANSMITTAL LIST UPDATE (FUNGSI BARU) ---
+            if os.path.exists(TRANSMITTAL_FILE_PATH):
+                try:
+                    wb_t = load_workbook(TRANSMITTAL_FILE_PATH)
+                    proj_name_trans = full_name # e.g., "H10 BeraPit"
+                    if proj_name_trans in wb_t.sheetnames:
+                        ws_t = wb_t[proj_name_trans]
+                        # Cari Sl. No. seterusnya
+                        last_row_t = ws_t.max_row
+                        next_sl = 1
+                        if last_row_t > 1:
+                            last_val = ws_t.cell(row=last_row_t, column=1).value
+                            try: next_sl = int(last_val) + 1
+                            except: next_sl = last_row_t # Fallback
+                        
+                        # Data: Sl No, Draw Name, Part No, Rev, Total, Date, Main Assy
+                        trans_data = [next_sl, draw, part, rev, total, dt_obj, self.assembly_v.get()]
+                        
+                        ws_t.append(trans_data)
+                        curr_row_t = ws_t.max_row
+                        # Formatting
+                        for ci_t in range(1, 8):
+                            cell_t = ws_t.cell(row=curr_row_t, column=ci_t)
+                            cell_t.border = THIN_BORDER
+                            if ci_t == 6: cell_t.number_format = 'DD/MM/YYYY'
+                            if ci_t in [2, 3, 7]: cell_t.alignment = LEFT_ALIGN
+                            else: cell_t.alignment = CENTER_ALIGN
+                        
+                        wb_t.save(TRANSMITTAL_FILE_PATH)
+                except Exception as e_t:
+                    print(f"Transmittal Update Error: {e_t}")
+
             self.trigger_feedback("success", f"✅ DATA SUCCESSFULLY WRITTEN TO {os.path.basename(proj_file)}!")
             self.update_status(f"Saved: {part}", COLOR_SUCCESS)
         except Exception as e: 
