@@ -14,11 +14,11 @@ PROJECTS = ["G10", "H10 BeraPit", "H10 TRC", "M10", "N10", "Wheel Press Machine"
 
 # User Credentials
 USERS = {
-    "Design Engineering": {"pin": "111111", "role": "ENG"},
-    "Document Controller": {"pin": "1234", "role": "DC"}
+    "Design Engineering": {"pin": "1112", "role": "ENG"},
+    "Document Control": {"pin": "1234", "role": "DC"}
 }
 
-# --- PDF GENERATOR WITH DYNAMIC AUTOFIT & FULL WIDTH ---
+# --- PDF GENERATOR ---
 class TransmittalPDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 14)
@@ -26,7 +26,6 @@ class TransmittalPDF(FPDF):
         self.ln(5)
 
     def generate_table(self, header, data, proj_info):
-        # Calculate content-based widths (Autofit logic)
         self.set_font("Arial", "B", 8)
         content_widths = []
         for i, h_text in enumerate(header):
@@ -36,25 +35,21 @@ class TransmittalPDF(FPDF):
                 if row_w > w: w = row_w
             content_widths.append(w)
         
-        # Normalize widths to exactly 190mm (Full Page Width to match project header)
         total_content_w = sum(content_widths)
-        page_width = 190 # Standard usable width for A4
+        page_width = 190 
         widths = [(w / total_content_w) * page_width for w in content_widths]
 
-        # Project Header Area (Full Width)
         self.set_font("Arial", "B", 12)
         self.set_fill_color(144, 238, 144) 
         self.cell(0, 10, f"PROJECT: {proj_info['proj']}   |   MAIN ASSY: {proj_info['assy']}", 1, 1, 'C', 1)
         self.ln(2)
 
-        # Table Header
         self.set_font("Arial", "B", 8)
         self.set_fill_color(220, 220, 220)
         for i, h in enumerate(header):
             self.cell(widths[i], 10, h, 1, 0, 'C', 1)
         self.ln()
         
-        # Table Rows
         self.set_font("Arial", "", 8)
         for row in data:
             if self.get_y() > 270: self.add_page()
@@ -129,13 +124,10 @@ class TransmittalApp(ctk.CTk):
             self.withdraw()
             self.show_login()
 
-    # =========================================================================
-    # HANNAN DASHBOARD
-    # =========================================================================
     def setup_hannan_dashboard(self):
         top_bar = ctk.CTkFrame(self.main_container, fg_color="transparent")
         top_bar.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(top_bar, text="Engineering Transmittal Dashboard", font=("Segoe UI", 22, "bold"), text_color="#2C3E50").pack(side="left")
+        ctk.CTkLabel(top_bar, text="Engineering Transmittal Dashboard", font=("Segoe UI", 20, "bold"), text_color="#2C3E50").pack(side="left")
         ctk.CTkButton(top_bar, text="REFRESH ALL", font=("Segoe UI", 13, "bold"), command=self.refresh_hannan_data).pack(side="right")
 
         self.tabview = ctk.CTkTabview(self.main_container, corner_radius=15, segmented_button_selected_color="#2C3E50")
@@ -152,8 +144,8 @@ class TransmittalApp(ctk.CTk):
             
             self.project_scrolls[proj] = {
                 "scroll": ctk.CTkScrollableFrame(tab, fg_color="#FBFCFC"),
-                "note_label": ctk.CTkLabel(info_f, text="", font=("Segoe UI", 14, "bold")),
-                "issue_btn": ctk.CTkButton(info_f, text="Create & Issue", fg_color="#27AE60", font=("Segoe UI", 13, "bold"), command=lambda p=proj: self.create_issue_action(p))
+                "note_label": ctk.CTkLabel(info_f, text="", font=("Segoe UI", 12, "bold")),
+                "issue_btn": ctk.CTkButton(info_f, text="Create & Issue (All)", fg_color="#27AE60", font=("Segoe UI", 13, "bold"), command=lambda p=proj: self.create_issue_action(p))
             }
             self.project_scrolls[proj]["note_label"].pack(side="left")
             self.project_scrolls[proj]["issue_btn"].pack(side="right")
@@ -176,50 +168,66 @@ class TransmittalApp(ctk.CTk):
                 
                 if proj not in wb.sheetnames: continue
                 ws = wb[proj]
-                rows = list(ws.iter_rows(min_row=2, values_only=True))
                 
-                unissued = [r for r in rows if r[1] and not r[7]]
-                pending_dc = [r for r in rows if r[7] and not r[9]]
+                raw_rows = list(ws.iter_rows(min_row=2, values_only=True))
+                rows = []
+                for r in raw_rows:
+                    if r is None or not r[1]: continue
+                    r_list = list(r)
+                    while len(r_list) < 13: r_list.append(None)
+                    rows.append(r_list)
                 
-                unissued_groups = len(set([r[6] for r in unissued])) if unissued else 0
-                pending_forms = len(set([r[11] for r in pending_dc])) if pending_dc else 0
-                
-                status_txt = f"Unissued Groups: {unissued_groups}  |  Pending DC: {pending_forms} Forms"
-                note.configure(text=status_txt, text_color="#C0392B" if unissued_groups > 0 else "#27AE60")
-                
-                if unissued_groups > 0:
-                    self.tabview._segmented_button._buttons_dict[proj].configure(text_color="#C0392B")
-                else:
-                    self.tabview._segmented_button._buttons_dict[proj].configure(text_color="#2C3E50")
+                # --- Grouping logic for all states ---
+                unissued_groups = {} # Belum Isu: Group by Main Assy
+                pending_groups = {}  # ISSUED: Group by (Main Assy + Issue Time)
+                received_groups = {} # RECEIVED: Group by Form ID (Unique per transmittal)
 
-                self.draw_hannan_header(scroll)
-                
-                # Logic to determine if row should be displayed (Hannan View)
                 for r in rows:
-                    if not r[1]: continue
+                    assy = str(r[6])
+                    iss_time = str(r[8]) # Col I
+                    f_id = str(r[11])    # Col L
                     
-                    # CASE 1: Not issued yet (READY)
-                    if not r[7]: 
-                        self.draw_hannan_row(scroll, r, "READY", "#3498DB")
-                    
-                    # CASE 2: Issued but not received yet (ISSUED)
-                    elif not r[9]:
-                        self.draw_hannan_row(scroll, r, "ISSUED", "#E67E22")
-                    
-                    # CASE 3: Received by Tasya (Maintain for 1 hour)
-                    else:
-                        rec_time_val = r[10] # Column K (index 10)
+                    if not r[7]: # BELUM ISU
+                        if assy not in unissued_groups: unissued_groups[assy] = []
+                        unissued_groups[assy].append(r)
+                    elif not r[9]: # ISSUED but not Received
+                        key = (assy, iss_time)
+                        if key not in pending_groups: pending_groups[key] = []
+                        pending_groups[key].append(r)
+                    else: # RECEIVED
+                        rec_time_val = r[10]
                         try:
-                            if isinstance(rec_time_val, str):
-                                rec_dt = datetime.strptime(rec_time_val, "%Y-%m-%d %H:%M:%S")
-                            else:
-                                rec_dt = rec_time_val
-                            
-                            # Check if current time is within 1 hour of receipt
+                            if isinstance(rec_time_val, str): rec_dt = datetime.strptime(rec_time_val, "%Y-%m-%d %H:%M:%S")
+                            else: rec_dt = rec_time_val
                             if rec_dt and (now_dt - rec_dt) < timedelta(hours=1):
-                                self.draw_hannan_row(scroll, r, "RECEIVED", "#27AE60")
-                        except:
-                            pass # If date parsing fails, hide the row
+                                if f_id not in received_groups: received_groups[f_id] = []
+                                received_groups[f_id].append(r)
+                        except: pass
+
+                # Update Status Counter
+                unissued_count = len(unissued_groups.keys())
+                pending_count = len(pending_groups.keys())
+                note.configure(text=f"Unissued Groups: {unissued_count}  |  Pending DC: {pending_count} Batches", 
+                               text_color="#C0392B" if unissued_count > 0 else "#27AE60")
+                
+                # Header
+                self.draw_hannan_header(scroll)
+
+                # 1. BELUM ISU (Groups by Assy)
+                for assy, items in unissued_groups.items():
+                    self.draw_hannan_group_row(scroll, proj, assy, items, "READY", "#3498DB")
+
+                # 2. PENDING RECEIVED (Groups by Assy + Time)
+                for (assy, time), items in pending_groups.items():
+                    display_label = f"{assy} (Issued: {time})"
+                    self.draw_hannan_group_row(scroll, proj, display_label, items, "ISSUED", "#E67E22")
+
+                # 3. RECEIVED (Groups by Form ID)
+                for fid, items in received_groups.items():
+                    assy_name = items[0][6] if items else "Unknown"
+                    display_label = f"FORM: {fid} ({assy_name})"
+                    self.draw_hannan_group_row(scroll, proj, display_label, items, "RECEIVED", "#27AE60", form_id=fid)
+
             wb.close()
         except Exception as e:
             messagebox.showerror("Error", f"Could not refresh data: {e}")
@@ -227,23 +235,63 @@ class TransmittalApp(ctk.CTk):
     def draw_hannan_header(self, parent):
         h = ctk.CTkFrame(parent, fg_color="#34495E", height=45)
         h.pack(fill="x", pady=(0, 5))
-        cols = [("Drawing Name", 0.05), ("Drawing Number", 0.38), ("Rev", 0.65), ("Total", 0.72), ("Main Assy", 0.80), ("Status", 0.92)]
+        cols = [("Group Name / Form ID", 0.05), ("Status", 0.92)]
         for text, relx in cols:
-            ctk.CTkLabel(h, text=text, text_color="white", font=("Segoe UI", 15, "bold")).place(relx=relx, rely=0.5, anchor="w")
+            ctk.CTkLabel(h, text=text, text_color="white", font=("Segoe UI", 12, "bold")).place(relx=relx, rely=0.5, anchor="w")
 
-    def draw_hannan_row(self, parent, data, st, color):
-        r = ctk.CTkFrame(parent, fg_color="white", height=45, border_width=1, border_color="#EAEDED")
-        r.pack(fill="x", pady=1)
-        ctk.CTkLabel(r, text=str(data[1])[:45], font=("Segoe UI", 14), text_color="black").place(relx=0.05, rely=0.5, anchor="w")
-        ctk.CTkLabel(r, text=str(data[2]), font=("Segoe UI", 14, "bold"), text_color="#2C3E50").place(relx=0.38, rely=0.5, anchor="w")
-        ctk.CTkLabel(r, text=str(data[3]), font=("Segoe UI", 14)).place(relx=0.65, rely=0.5, anchor="w")
-        ctk.CTkLabel(r, text=str(data[4]), font=("Segoe UI", 14)).place(relx=0.72, rely=0.5, anchor="w")
-        ctk.CTkLabel(r, text=str(data[6]), font=("Segoe UI", 14)).place(relx=0.80, rely=0.5, anchor="w")
-        
-        lbl = ctk.CTkLabel(r, text=st, text_color="white", font=("Segoe UI", 11, "bold"), fg_color=color, width=75, corner_radius=4)
+    def draw_hannan_group_row(self, parent, proj, label_text, items, st, color, form_id=None):
+        """Draws a grouped row with a pop-up View List."""
+        g_frame = ctk.CTkFrame(parent, fg_color="white", height=50, border_width=1, border_color="#EAEDED")
+        g_frame.pack(fill="x", pady=1)
+
+        ctk.CTkLabel(g_frame, text=label_text, font=("Segoe UI", 12, "bold"), text_color="#2C3E50").place(relx=0.05, rely=0.5, anchor="w")
+        ctk.CTkLabel(g_frame, text=f"({len(items)} drawings)", font=("Segoe UI", 11), text_color="gray").place(relx=0.45, rely=0.5, anchor="w")
+
+        lbl = ctk.CTkLabel(g_frame, text=st, text_color="white", font=("Segoe UI", 11, "bold"), fg_color=color, width=85, corner_radius=4)
         lbl.place(relx=0.92, rely=0.5, anchor="w")
 
-    def create_issue_action(self, proj):
+        btn_view = ctk.CTkButton(g_frame, text="VIEW LIST", width=80, height=28, font=("Segoe UI", 10, "bold"), 
+                                 fg_color="#34495E", command=lambda l=label_text, i=items, fid=form_id: self.show_list_popup(l, i, fid))
+        btn_view.place(relx=0.84, rely=0.5, anchor="e")
+
+        if st == "READY":
+            btn_issue = ctk.CTkButton(g_frame, text="ISSUE", width=70, height=28, font=("Segoe UI", 10, "bold"), 
+                                      fg_color="#27AE60", command=lambda p=proj, a=label_text: self.create_issue_action(p, a))
+            btn_issue.place(relx=0.76, rely=0.5, anchor="e")
+
+    def show_list_popup(self, label, items, form_id=None):
+        """Shows a Toplevel popup with the list of drawings for the group."""
+        pop = ctk.CTkToplevel(self)
+        pop.title(f"Drawing List: {label}")
+        pop.geometry("950x550")
+        pop.attributes("-topmost", True)
+        
+        # Penyesuaian: Gunakan label asal sahaja jika form_id wujud untuk elakkan ID dipaparkan dua kali
+        if form_id:
+            header_text = label
+        else:
+            header_text = f"GROUP: {label}"
+            
+        ctk.CTkLabel(pop, text=header_text, font=("Segoe UI", 16, "bold"), text_color="#2C3E50", justify="center").pack(pady=15)
+        
+        h = ctk.CTkFrame(pop, fg_color="#34495E", height=40)
+        h.pack(fill="x", padx=20)
+        cols = [("Drawing Name", 0.05), ("Drawing Number", 0.45), ("Rev", 0.75), ("Total", 0.85)]
+        for text, relx in cols:
+            ctk.CTkLabel(h, text=text, text_color="white", font=("Segoe UI", 12, "bold")).place(relx=relx, rely=0.5, anchor="w")
+
+        scroll = ctk.CTkScrollableFrame(pop, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=20, pady=10)
+
+        for d in items:
+            r = ctk.CTkFrame(scroll, fg_color="white", height=40, border_width=1, border_color="#F2F4F4")
+            r.pack(fill="x", pady=1)
+            ctk.CTkLabel(r, text=str(d[1])[:50], font=("Segoe UI", 12)).place(relx=0.05, rely=0.5, anchor="w")
+            ctk.CTkLabel(r, text=str(d[2]), font=("Segoe UI", 12, "bold")).place(relx=0.45, rely=0.5, anchor="w")
+            ctk.CTkLabel(r, text=str(d[3]), font=("Segoe UI", 12)).place(relx=0.75, rely=0.5, anchor="w")
+            ctk.CTkLabel(r, text=str(d[4]), font=("Segoe UI", 12)).place(relx=0.85, rely=0.5, anchor="w")
+
+    def create_issue_action(self, proj, assy_filter=None):
         try:
             wb = load_workbook(DC_LIST_FILE)
             ws = wb[proj]
@@ -251,19 +299,20 @@ class TransmittalApp(ctk.CTk):
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for r in range(2, ws.max_row + 1):
                 if ws.cell(row=r, column=2).value and not ws.cell(row=r, column=8).value:
+                    if assy_filter and str(ws.cell(row=r, column=7).value) != str(assy_filter):
+                        continue
                     ws.cell(row=r, column=8).value = "Hannan"
                     ws.cell(row=r, column=9).value = now
                     count += 1
             if count > 0:
                 wb.save(DC_LIST_FILE)
-                messagebox.showinfo("Success", f"Transmittal for {proj} issued to Tasya.")
+                messagebox.showinfo("Success", f"Transmittal batch issued successfully.")
                 self.refresh_hannan_data()
+            else:
+                messagebox.showwarning("Warning", "No new drawings to issue.")
         except PermissionError:
-            messagebox.showerror("Error", "SERVER FILE BUSY: Close Excel!")
+            messagebox.showerror("Error", "SERVER FILE BUSY: Please close Excel!")
 
-    # =========================================================================
-    # TASYA DASHBOARD
-    # =========================================================================
     def setup_tasya_dashboard(self):
         top_f = ctk.CTkFrame(self.main_container, fg_color="transparent")
         top_f.pack(fill="x", pady=(0, 15))
@@ -283,10 +332,13 @@ class TransmittalApp(ctk.CTk):
                 if proj not in wb.sheetnames: continue
                 ws = wb[proj]
                 for r in ws.iter_rows(min_row=2, values_only=True):
-                    if r[7] and not r[9]:
-                        key = (proj, r[6], r[8])
+                    if r is None or not r[1]: continue
+                    r_list = list(r)
+                    while len(r_list) < 13: r_list.append(None)
+                    if r_list[7] and not r_list[9]: # Issued but not received
+                        key = (proj, r_list[6], r_list[8])
                         if key not in forms: forms[key] = []
-                        forms[key].append(r)
+                        forms[key].append(r_list)
             if not forms:
                 ctk.CTkLabel(self.tasya_scroll, text="No pending transmittals found.", text_color="gray", font=("Segoe UI", 16)).pack(pady=100)
                 return
@@ -309,16 +361,13 @@ class TransmittalApp(ctk.CTk):
     def view_details_tasya(self, key, items):
         proj, assy, _ = key
         pop = ctk.CTkToplevel(self); pop.title(f"Details: {proj} {assy}"); pop.geometry("1100x700"); pop.attributes("-topmost", True)
-        
         h = ctk.CTkFrame(pop, fg_color="#34495E", height=45)
         h.pack(fill="x", padx=20, pady=(20, 5))
         cols = [("Drawing Name", 0.05), ("Drawing Number", 0.40), ("Rev", 0.70), ("Total", 0.78), ("Main Assy", 0.88)]
         for text, relx in cols:
             ctk.CTkLabel(h, text=text, text_color="white", font=("Segoe UI", 14, "bold")).place(relx=relx, rely=0.5, anchor="w")
-
         scroll = ctk.CTkScrollableFrame(pop, fg_color="#FDFEFE")
         scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
-        
         for d in items:
             row = ctk.CTkFrame(scroll, fg_color="white", height=45, border_width=1, border_color="#EAEDED")
             row.pack(fill="x", pady=1)
@@ -352,34 +401,28 @@ class TransmittalApp(ctk.CTk):
         folder = os.path.join(DC_ROOT, proj)
         if not os.path.exists(folder): os.makedirs(folder)
         path = os.path.join(folder, f"{f_id}.pdf")
-        
         pdf = TransmittalPDF()
         pdf.add_page()
         pdf.set_font("Arial", "B", 10)
         pdf.cell(0, 8, f"FORM ID: {f_id}", ln=1)
         pdf.cell(0, 8, f"DATE: {datetime.now().strftime('%d/%m/%Y')}", ln=1)
         pdf.ln(5)
-        
         header = ["Sl", "Drawing Number", "Drawing Name", "Rev", "Total", "Approved"]
         data = []
         for i, d in enumerate(sorted(items, key=lambda x: str(x[2])), 1):
             appr_val = d[5]
-            if hasattr(appr_val, 'strftime'):
-                appr_str = appr_val.strftime('%Y-%m-%d')
-            elif appr_val:
-                appr_str = str(appr_val).split()[0]
-            else:
-                appr_str = ""
+            if hasattr(appr_val, 'strftime'): appr_str = appr_val.strftime('%Y-%m-%d')
+            elif appr_val: appr_str = str(appr_val).split()[0]
+            else: appr_str = ""
             data.append([str(i), str(d[2]), str(d[1])[:40], str(d[3]), str(d[4]), appr_str])
         
         pdf.generate_table(header, data, {"proj": proj, "assy": assy})
-        
         pdf.ln(10)
         pdf.set_font("Arial", "B", 10)
         pdf.cell(95, 7, "Drawing issued by:", 0, 0)
         pdf.cell(95, 7, "Drawing received by:", 0, 1)
         pdf.set_font("Arial", "", 10)
-        pdf.cell(95, 7, "Name: Hannan", 0, 0); pdf.cell(95, 7, "Name: Tasya", 0, 1)
+        pdf.cell(95, 7, f"Name: Hannan", 0, 0); pdf.cell(95, 7, f"Name: Tasya", 0, 1)
         pdf.cell(95, 7, f"Date: {iss_t}", 0, 0); pdf.cell(95, 7, f"Date: {rec_t}", 0, 1)
         pdf.output(path)
 
