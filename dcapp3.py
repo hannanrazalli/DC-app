@@ -138,8 +138,9 @@ class IntegratedApp(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("Light")
         self.title("LMG Engineering - Integrated Data Entry & Transmittal System")
-        self.geometry("1200x900") 
-        self.minsize(950, 800) 
+        # --- PELARASAN: UI vertical size ditinggikan ke 1150 ---
+        self.geometry("1250x1150") 
+        self.minsize(1000, 950) 
         self.configure(fg_color=COLOR_BG)
         
         try:
@@ -274,11 +275,11 @@ class IntegratedApp(ctk.CTk):
             self.refresh_tasya_inbox()
 
     # =========================================================================
-    # TAB 1: DATA ENTRY (AUTOFIT BUTTONS FIX DILAKSANAKAN)
+    # TAB 1: DATA ENTRY 
     # =========================================================================
     def setup_data_entry_tab(self):
         self.tab_entry.columnconfigure(0, weight=1)
-        self.tab_entry.rowconfigure(0, weight=1) # Benarkan frame scroll untuk expand
+        self.tab_entry.rowconfigure(0, weight=1)
 
         # 1. Letakkan butang di bahagian bawah (Pinned to bottom)
         self.btn_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
@@ -290,8 +291,8 @@ class IntegratedApp(ctk.CTk):
         ctk.CTkButton(self.btn_frame, text="OPEN FOLDER", fg_color=COLOR_WARNING, hover_color="#D35400", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_folder).grid(row=0, column=2, padx=(5, 5), sticky="ew")
         ctk.CTkButton(self.btn_frame, text="OPEN EXCEL", fg_color=COLOR_INFO, hover_color="#16A085", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_project_file).grid(row=0, column=3, padx=(5, 0), sticky="ew")
 
-        # 2. Letakkan borang yang lain di dalam kawasan ScrollableFrame
-        self.entry_scroll = ctk.CTkScrollableFrame(self.tab_entry, fg_color="transparent")
+        # 2. PELARASAN: Tukar CTkScrollableFrame kepada CTkFrame biasa supaya tiada scroll langsung
+        self.entry_scroll = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
         self.entry_scroll.pack(side="top", fill="both", expand=True)
         self.entry_scroll.columnconfigure((0, 1), weight=1)
         
@@ -375,7 +376,6 @@ class IntegratedApp(ctk.CTk):
                                              fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.remark_drop.grid(row=14, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        # Feedback area dipindahkan sedikit ke atas butang
         self.feedback_frame = ctk.CTkFrame(self.entry_scroll, fg_color="transparent", height=50)
         self.feedback_frame.grid(row=15, column=0, columnspan=2, pady=(10, 5), padx=20, sticky="ew")
         self.lbl_feedback = ctk.CTkLabel(self.feedback_frame, text="", font=FONT_FEEDBACK, text_color="white", corner_radius=6)
@@ -783,10 +783,10 @@ class IntegratedApp(ctk.CTk):
                     ws_p.row_dimensions[r].height = 18
             wb_p.save(proj_file)
             
-            # --- UPDATE 2: ALIGNMENT UNTUK EXCEL TRANSMITTAL (DC Transmittal List) ---
+            # --- PANGGIL FUNGSI TRANSMITTAL UPDATE ---
             self.add_to_dc_list_excel(full_name, draw, part, rev, total, dt_obj, self.assembly_v.get())
             
-            # --- UPDATE 1: JANGAN CLEAR FORM SELEPAS SUBMIT BERJAYA ---
+            # PELARASAN: Tiada lagi fungsi clear_all dipanggil supaya form maintain data asalnya.
             self.trigger_feedback("success", "Saved & Synced!")
         except Exception as e: messagebox.showerror("Error", f"Submit Error: {e}")
 
@@ -797,21 +797,20 @@ class IntegratedApp(ctk.CTk):
             last_row = ws.max_row + 1
             sl = 1 if last_row == 2 else (ws.cell(row=last_row-1, column=1).value or 0) + 1
             
-            # Append data kosong dahulu untuk wujudkan row baru
             ws.append([sl, draw, part, rev, total, appr_date, assy, "", "", "", "", ""])
             
-            # Tetapkan alignment mengikut keperluan anda
-            left_align_cols = [2, 3, 12] # Drawing Name, Drawing Number, Form ID
+            # Terapkan Alignment mengikut arahan
             align_center = Alignment(horizontal='center', vertical='center')
             align_left = Alignment(horizontal='left', vertical='center')
-            
+            left_cols = [2, 3, 12] # Drawing Name, Drawing Number, Form ID
+
             for col in range(1, 13):
                 cell = ws.cell(row=last_row, column=col)
-                if col in left_align_cols:
+                if col in left_cols:
                     cell.alignment = align_left
                 else:
                     cell.alignment = align_center
-            
+
             wb.save(DC_LIST_FILE); wb.close()
         except: pass
 
@@ -941,6 +940,7 @@ class IntegratedApp(ctk.CTk):
                           command=lambda p=res["path"]: os.startfile(p)).pack(side="right", padx=15)
 
         ctk.CTkButton(top, text="CLOSE WINDOW", fg_color=COLOR_DANGER, width=150, height=40, font=("Segoe UI", 12, "bold"), command=top.destroy).pack(pady=20)
+
 
     def publish_to_server_thread(self):
         self.btn_publish.configure(state="disabled", text="Publishing...")
@@ -1137,14 +1137,13 @@ class IntegratedApp(ctk.CTk):
             ws = wb[proj]
             count = 0
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            align_center = Alignment(horizontal='center', vertical='center') # Update 2: Alignment
+            align_center = Alignment(horizontal='center', vertical='center')
 
             for r in range(2, ws.max_row + 1):
                 if ws.cell(row=r, column=2).value and not ws.cell(row=r, column=8).value:
                     if assy_filter and str(ws.cell(row=r, column=7).value) != str(assy_filter):
                         continue
                     
-                    # Update 2: Tambah Alignment untuk Kolum 8 dan 9
                     ws.cell(row=r, column=8).value = "Hannan"
                     ws.cell(row=r, column=8).alignment = align_center
                     ws.cell(row=r, column=9).value = now
@@ -1244,13 +1243,12 @@ class IntegratedApp(ctk.CTk):
             wb = load_workbook(DC_LIST_FILE)
             ws = wb[proj]
             
-            align_center = Alignment(horizontal='center', vertical='center') # Update 2: Alignment
-            align_left = Alignment(horizontal='left', vertical='center') # Update 2: Alignment
+            align_center = Alignment(horizontal='center', vertical='center') 
+            align_left = Alignment(horizontal='left', vertical='center') 
             
             for r in range(2, ws.max_row + 1):
-                if str(ws.cell(row=r, column=9).value) == str(iss_date) and ws.cell(row=r, column=7).value == assy:
+                if str(ws.cell(row=r, column=9).value) == str(iss_date) and str(ws.cell(row=r, column=7).value) == str(assy):
                     
-                    # Update 2: Tambah Alignment untuk Kolum 10, 11, dan 12
                     ws.cell(row=r, column=10).value = "Tasya"
                     ws.cell(row=r, column=10).alignment = align_center
                     
@@ -1301,6 +1299,7 @@ class IntegratedApp(ctk.CTk):
         pdf.cell(95, 7, f"Date: {iss_t}", 0, 0); pdf.cell(95, 7, f"Date: {rec_t}", 0, 1)
         
         pdf.output(path)
+
 
 if __name__ == "__main__":
     app = IntegratedApp()
