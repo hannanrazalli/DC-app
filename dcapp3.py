@@ -104,7 +104,7 @@ def try_int(val):
     try: return int(val)
     except: return -1
 
-# --- PDF GENERATOR WITH DYNAMIC AUTOFIT ---
+# --- PDF GENERATOR ---
 class TransmittalPDF(FPDF):
     def header(self):
         self.set_font("Arial", "B", 14)
@@ -112,11 +112,11 @@ class TransmittalPDF(FPDF):
         self.ln(5)
 
     def generate_table(self, header, data, proj_info):
-        # Calculate widths (approximate autofit)
-        widths = [10, 45, 80, 15, 15, 25] # Default fallback
+        # Landscape Mode width ~ 277mm
+        widths = [10, 40, 80, 15, 15, 25, 92]
         
         self.set_font("Arial", "B", 12)
-        self.set_fill_color(144, 238, 144) # Light Green Header Area
+        self.set_fill_color(144, 238, 144) 
         self.cell(0, 10, f"PROJECT: {proj_info['proj']}   |   MAIN ASSY: {proj_info['assy']}", 1, 1, 'C', 1)
         self.ln(2)
 
@@ -128,9 +128,10 @@ class TransmittalPDF(FPDF):
         
         self.set_font("Arial", "", 8)
         for row in data:
-            if self.get_y() > 270: self.add_page()
+            if self.get_y() > 180: self.add_page() # Adjust for landscape
             for i, item in enumerate(row):
-                self.cell(widths[i], 7, str(item), 1, 0, 'C')
+                align = 'L' if i in [2, 6] else 'C' # Left align drawing name and remarks
+                self.cell(widths[i], 7, str(item), 1, 0, align)
             self.ln()
 
 class IntegratedApp(ctk.CTk):
@@ -138,8 +139,8 @@ class IntegratedApp(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("Light")
         self.title("LMG Engineering - Integrated Data Entry & Transmittal System")
-        # --- PELARASAN: UI vertical size ditinggikan ke 1150 ---
-        self.geometry("1250x1150") 
+        # UBAHSUAI 1: TINGGIKAN VERTICAL UI KE 1050
+        self.geometry("1250x1050") 
         self.minsize(1000, 950) 
         self.configure(fg_color=COLOR_BG)
         
@@ -176,9 +177,7 @@ class IntegratedApp(ctk.CTk):
         self.pin_ent.pack(pady=20, padx=60)
         self.pin_ent.focus_set()
         
-        # BIND ENTER KEY
         self.pin_ent.bind("<Return>", lambda e: self.verify_login())
-        
         ctk.CTkButton(self.login_win, text="LOGIN", command=self.verify_login, height=50, font=("Segoe UI", 16, "bold"), fg_color="#2C3E50").pack(pady=30)
 
     def verify_login(self):
@@ -192,13 +191,6 @@ class IntegratedApp(ctk.CTk):
             self.setup_ui()
         else:
             messagebox.showerror("Error", "Wrong PIN! Please try again.")
-
-    def logout(self):
-        if messagebox.askyesno("Logout", "Do you want to exit?"):
-            self.current_user = None
-            for w in self.winfo_children(): w.destroy()
-            self.withdraw()
-            self.show_login()
 
     def setup_ui(self):
         self.header_frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARY, corner_radius=0, height=85)
@@ -241,7 +233,6 @@ class IntegratedApp(ctk.CTk):
         except Exception as e:
             print(f"Error loading logo: {e}")
 
-        # --- TAB VIEW SYSTEM ---
         self.tabview = ctk.CTkTabview(self, fg_color=COLOR_CARD, border_width=1, border_color="#BDC3C7", corner_radius=15)
         self.tabview.grid(row=1, column=0, sticky="nsew", padx=20, pady=(10, 20))
         
@@ -259,72 +250,55 @@ class IntegratedApp(ctk.CTk):
             
             self.setup_view_drawings_tab()
             self.setup_tasya_dashboard()
-            
-            self.tabview.set("DRAWING TRANSMITTAL")
+            self.tabview.set("DRAWING TRANSMITTAL") # DEFAULT TAB DC
 
-        # Status Bar
         self.status_bar = ctk.CTkFrame(self, height=30, fg_color="#BDC3C7", corner_radius=0)
         self.status_bar.grid(row=2, column=0, sticky="ew")
         self.status_label = ctk.CTkLabel(self.status_bar, text="System Ready", font=("Consolas", 11), text_color="#2C3E50")
         self.status_label.pack(side="left", padx=20)
 
-    def refresh_all_data(self):
-        if self.current_role == "ENG":
-            self.refresh_hannan_data()
-        else:
-            self.refresh_tasya_inbox()
+    def logout(self):
+        if messagebox.askyesno("Logout", "Do you want to exit?"):
+            self.current_user = None
+            for w in self.winfo_children(): w.destroy()
+            self.withdraw()
+            self.show_login()
 
     # =========================================================================
-    # TAB 1: DATA ENTRY 
+    # TAB 1: DATA ENTRY
     # =========================================================================
     def setup_data_entry_tab(self):
-        self.tab_entry.columnconfigure(0, weight=1)
-        self.tab_entry.rowconfigure(0, weight=1)
-
-        # 1. Letakkan butang di bahagian bawah (Pinned to bottom)
-        self.btn_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
-        self.btn_frame.pack(side="bottom", fill="x", pady=(10, 15), padx=20)
-        self.btn_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self.tab_entry.columnconfigure((0, 1), weight=1)
         
-        ctk.CTkButton(self.btn_frame, text="SUBMIT DATA", fg_color=COLOR_SUCCESS, hover_color="#219150", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.submit).grid(row=0, column=0, padx=(0, 5), sticky="ew")
-        ctk.CTkButton(self.btn_frame, text="CLEAR FORM", fg_color=COLOR_DANGER, hover_color="#A93226", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.clear_all).grid(row=0, column=1, padx=(5, 5), sticky="ew")
-        ctk.CTkButton(self.btn_frame, text="OPEN FOLDER", fg_color=COLOR_WARNING, hover_color="#D35400", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_folder).grid(row=0, column=2, padx=(5, 5), sticky="ew")
-        ctk.CTkButton(self.btn_frame, text="OPEN EXCEL", fg_color=COLOR_INFO, hover_color="#16A085", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_project_file).grid(row=0, column=3, padx=(5, 0), sticky="ew")
-
-        # 2. PELARASAN: Tukar CTkScrollableFrame kepada CTkFrame biasa supaya tiada scroll langsung
-        self.entry_scroll = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
-        self.entry_scroll.pack(side="top", fill="both", expand=True)
-        self.entry_scroll.columnconfigure((0, 1), weight=1)
-        
-        self.create_section_header("1. PROJECT DETAILS", row=0, parent=self.entry_scroll)
-        self.add_input_field(label="Project Name", row=1, col=0, parent=self.entry_scroll)
+        self.create_section_header("1. PROJECT DETAILS", row=0, parent=self.tab_entry)
+        self.add_input_field(label="Project Name", row=1, col=0, parent=self.tab_entry)
         self.proj_v = ctk.StringVar(value=PROJECTS[0])
-        self.proj_drop = ctk.CTkOptionMenu(self.entry_scroll, values=PROJECTS, variable=self.proj_v, command=self.update_logic, 
+        self.proj_drop = ctk.CTkOptionMenu(self.tab_entry, values=PROJECTS, variable=self.proj_v, command=self.update_logic, 
                                            fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.proj_drop.grid(row=2, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        self.add_input_field(label="Batch Code", row=1, col=1, parent=self.entry_scroll)
+        self.add_input_field(label="Batch Code", row=1, col=1, parent=self.tab_entry)
         self.batch_v = ctk.StringVar(value="-")
-        self.batch_drop = ctk.CTkOptionMenu(self.entry_scroll, values=BATCH_LIST, variable=self.batch_v,
+        self.batch_drop = ctk.CTkOptionMenu(self.tab_entry, values=BATCH_LIST, variable=self.batch_v,
                                             fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.batch_drop.grid(row=2, column=1, padx=20, pady=(5, 15), sticky="ew")
 
-        self.create_section_header("2. DRAWING & TECHNICAL INFORMATION", row=3, parent=self.entry_scroll)
-        self.add_input_field(label="Main Assembly", row=4, col=0, parent=self.entry_scroll)
+        self.create_section_header("2. DRAWING & TECHNICAL INFORMATION", row=3, parent=self.tab_entry)
+        self.add_input_field(label="Main Assembly", row=4, col=0, parent=self.tab_entry)
         self.assembly_v = ctk.StringVar(value=ASSEMBLIES[0])
-        self.assembly_drop = ctk.CTkOptionMenu(self.entry_scroll, values=ASSEMBLIES, variable=self.assembly_v, 
+        self.assembly_drop = ctk.CTkOptionMenu(self.tab_entry, values=ASSEMBLIES, variable=self.assembly_v, 
                                                 fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.assembly_drop.grid(row=5, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        self.add_input_field(label="Drawing Name", row=4, col=1, parent=self.entry_scroll)
-        self.draw_ent = ctk.CTkEntry(self.entry_scroll, font=FONT_INPUT, height=32, placeholder_text="Full drawing title")
+        self.add_input_field(label="Drawing Name", row=4, col=1, parent=self.tab_entry)
+        self.draw_ent = ctk.CTkEntry(self.tab_entry, font=FONT_INPUT, height=32, placeholder_text="Full drawing title")
         self.draw_ent.grid(row=5, column=1, padx=20, pady=(5, 0), sticky="ew")
         self.draw_ent.bind("<KeyRelease>", lambda e: [self.to_uppercase(e, self.draw_ent), self.clear_field_error("draw")])
-        self.err_draw = ctk.CTkLabel(self.entry_scroll, text="", font=FONT_ERROR, text_color=COLOR_DANGER)
+        self.err_draw = ctk.CTkLabel(self.tab_entry, text="", font=FONT_ERROR, text_color=COLOR_DANGER)
         self.err_draw.grid(row=6, column=1, padx=25, sticky="w")
 
-        self.add_input_field(label="Part Number", row=7, col=0, parent=self.entry_scroll)
-        self.part_frame = ctk.CTkFrame(self.entry_scroll, fg_color="transparent")
+        self.add_input_field(label="Part Number", row=7, col=0, parent=self.tab_entry)
+        self.part_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
         self.part_frame.grid(row=8, column=0, padx=20, pady=(5, 0), sticky="ew")
         self.part_ent = ctk.CTkEntry(self.part_frame, font=FONT_INPUT, height=32, placeholder_text="e.g. H10-100-001")
         self.part_ent.pack(side="left", fill="x", expand=True, padx=(0, 5))
@@ -336,10 +310,10 @@ class IntegratedApp(ctk.CTk):
                                             fg_color="#7f8c8d", hover_color="#95a5a6", 
                                             command=self.check_part_existence_thread)
         self.btn_check_part.pack(side="right")
-        self.err_part = ctk.CTkLabel(self.entry_scroll, text="", font=FONT_ERROR, text_color=COLOR_DANGER)
+        self.err_part = ctk.CTkLabel(self.tab_entry, text="", font=FONT_ERROR, text_color=COLOR_DANGER)
         self.err_part.grid(row=9, column=0, padx=25, sticky="w")
 
-        self.sub_frame = ctk.CTkFrame(self.entry_scroll, fg_color="transparent")
+        self.sub_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
         self.sub_frame.grid(row=7, column=1, rowspan=3, padx=20, pady=0, sticky="ew")
         self.sub_frame.grid_columnconfigure((0, 1), weight=1)
         ctk.CTkLabel(self.sub_frame, text="Revision", font=FONT_LABEL, text_color=COLOR_TEXT).grid(row=0, column=0, sticky="w")
@@ -356,30 +330,45 @@ class IntegratedApp(ctk.CTk):
         self.err_total = ctk.CTkLabel(self.sub_frame, text="", font=FONT_ERROR, text_color=COLOR_DANGER)
         self.err_total.grid(row=2, column=1, padx=(10, 0), sticky="w")
 
-        self.create_section_header("3. APPROVAL & STATUS", row=10, parent=self.entry_scroll)
-        self.add_input_field(label="Responsible Engineer", row=11, col=0, parent=self.entry_scroll)
+        self.create_section_header("3. APPROVAL & STATUS", row=10, parent=self.tab_entry)
+        self.add_input_field(label="Responsible Engineer", row=11, col=0, parent=self.tab_entry)
         self.eng_v = ctk.StringVar(value=ENGINEER_LIST[0])
-        self.eng_drop = ctk.CTkOptionMenu(self.entry_scroll, values=ENGINEER_LIST, variable=self.eng_v, 
+        # Pengekalan saiz sticky ew mengikut permintaan
+        self.eng_drop = ctk.CTkOptionMenu(self.tab_entry, values=ENGINEER_LIST, variable=self.eng_v, 
                                           fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.eng_drop.grid(row=12, column=0, padx=20, pady=(5, 10), sticky="ew")
 
-        self.add_input_field(label="Date Approved", row=11, col=1, parent=self.entry_scroll)
-        self.date_frame = ctk.CTkFrame(self.entry_scroll, fg_color="transparent")
+        self.add_input_field(label="Date Approved", row=11, col=1, parent=self.tab_entry)
+        self.date_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
         self.date_frame.grid(row=12, column=1, padx=20, pady=(5, 10), sticky="w")
         self.date_picker = DateEntry(self.date_frame, width=20, background=COLOR_PRIMARY, date_pattern='yyyy-mm-dd')
         self.date_picker.pack(side="left", padx=(0, 15), ipady=3)
         ctk.CTkButton(self.date_frame, text="Set Today", width=100, height=30, fg_color="#95a5a6", command=self.set_today).pack(side="left")
 
-        self.add_input_field(label="Remarks", row=13, col=0, parent=self.entry_scroll)
+        self.add_input_field(label="Remarks", row=13, col=0, parent=self.tab_entry)
         self.remark_v = ctk.StringVar(value="New")
-        self.remark_drop = ctk.CTkOptionMenu(self.entry_scroll, values=REMARKS_LIST, variable=self.remark_v, 
+        # Pengekalan saiz sticky ew mengikut permintaan
+        self.remark_drop = ctk.CTkOptionMenu(self.tab_entry, values=REMARKS_LIST, variable=self.remark_v, 
                                              fg_color=COLOR_PRIMARY, button_color=COLOR_ACCENT, font=FONT_INPUT, height=32)
         self.remark_drop.grid(row=14, column=0, padx=20, pady=(5, 15), sticky="ew")
 
-        self.feedback_frame = ctk.CTkFrame(self.entry_scroll, fg_color="transparent", height=50)
-        self.feedback_frame.grid(row=15, column=0, columnspan=2, pady=(10, 5), padx=20, sticky="ew")
+        # UBAHSUAI: REASON FOR REVISION TEXTBOX
+        self.add_input_field(label="Reason for Revision (Compulsory if Revised):", row=13, col=1, parent=self.tab_entry)
+        self.txt_reason = ctk.CTkTextbox(self.tab_entry, height=80, font=FONT_INPUT)
+        self.txt_reason.grid(row=14, column=1, rowspan=2, padx=20, pady=(5, 15), sticky="ew")
+
+        self.feedback_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent", height=50)
+        self.feedback_frame.grid(row=16, column=0, columnspan=2, pady=(10, 5), padx=20, sticky="ew")
         self.lbl_feedback = ctk.CTkLabel(self.feedback_frame, text="", font=FONT_FEEDBACK, text_color="white", corner_radius=6)
         self.lbl_feedback.pack(fill="both", ipady=10)
+
+        self.btn_frame = ctk.CTkFrame(self.tab_entry, fg_color="transparent")
+        self.btn_frame.grid(row=17, column=0, columnspan=2, pady=(10, 20), padx=20, sticky="ew")
+        self.btn_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        ctk.CTkButton(self.btn_frame, text="SUBMIT DATA", fg_color=COLOR_SUCCESS, hover_color="#219150", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.submit).grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        ctk.CTkButton(self.btn_frame, text="CLEAR FORM", fg_color=COLOR_DANGER, hover_color="#A93226", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.clear_all).grid(row=0, column=1, padx=(5, 5), sticky="ew")
+        ctk.CTkButton(self.btn_frame, text="OPEN FOLDER", fg_color=COLOR_WARNING, hover_color="#D35400", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_folder).grid(row=0, column=2, padx=(5, 5), sticky="ew")
+        ctk.CTkButton(self.btn_frame, text="OPEN EXCEL", fg_color=COLOR_INFO, hover_color="#16A085", height=50, corner_radius=8, font=("Segoe UI", 15, "bold"), command=self.open_project_file).grid(row=0, column=3, padx=(5, 0), sticky="ew")
 
 
     # =========================================================================
@@ -483,6 +472,7 @@ class IntegratedApp(ctk.CTk):
     def clear_all(self):
         self.update_logic(self.proj_v.get())
         for w in [self.draw_ent, self.part_ent, self.rev_ent, self.total_ent]: w.delete(0, 'end')
+        self.txt_reason.delete("1.0", "end") # Clear textbox
         self.err_draw.configure(text=""); self.err_part.configure(text=""); self.err_rev.configure(text=""); self.err_total.configure(text="")
         self.lbl_feedback.configure(text="", fg_color="transparent")
 
@@ -665,7 +655,10 @@ class IntegratedApp(ctk.CTk):
         self.err_total.configure(text="")
         full_name = self.proj_v.get(); short_proj = PROJ_MAP.get(full_name)
         proj_file = os.path.join(BASE_PATH, f"{full_name}.xlsx"); master_file_path = os.path.join(BASE_PATH, MASTER_FILE)
-        draw = self.draw_ent.get().upper().strip(); part = self.part_ent.get().upper().strip(); rev_str = self.rev_ent.get().strip(); total_str = self.total_ent.get().strip()
+        draw = self.draw_ent.get().upper().strip(); part = self.part_ent.get().upper().strip()
+        rev_str = self.rev_ent.get().strip(); total_str = self.total_ent.get().strip()
+        
+        reason_val = self.txt_reason.get("1.0", "end-1c").strip()
         
         has_err = False
         if not draw: self.err_draw.configure(text="* Sila isi Drawing Name"); has_err = True
@@ -673,6 +666,10 @@ class IntegratedApp(ctk.CTk):
         if not rev_str: self.err_rev.configure(text="* Sila isi Revision"); has_err = True
         if not total_str: self.err_total.configure(text="* Sila isi Total Sheets"); has_err = True
         if has_err: self.trigger_feedback("error", "Isi ruangan bertanda merah!"); return
+        
+        if self.remark_v.get() == "Revised" and not reason_val:
+            self.trigger_feedback("error", "Reason for Revision is compulsory!")
+            return
         
         try: rev, total = int(rev_str), int(total_str)
         except: self.trigger_feedback("error", "Revision/Total must be numbers"); return
@@ -783,37 +780,31 @@ class IntegratedApp(ctk.CTk):
                     ws_p.row_dimensions[r].height = 18
             wb_p.save(proj_file)
             
-            # --- PANGGIL FUNGSI TRANSMITTAL UPDATE ---
-            self.add_to_dc_list_excel(full_name, draw, part, rev, total, dt_obj, self.assembly_v.get())
+            # --- SYNC KE DC TRANSMITTAL LIST ---
+            self.add_to_dc_list_excel(full_name, draw, part, rev, total, dt_obj, self.assembly_v.get(), reason_val)
             
-            # PELARASAN: Tiada lagi fungsi clear_all dipanggil supaya form maintain data asalnya.
+            # PELARASAN: Tiada auto clear dipanggil
             self.trigger_feedback("success", "Saved & Synced!")
         except Exception as e: messagebox.showerror("Error", f"Submit Error: {e}")
 
-    def add_to_dc_list_excel(self, proj, draw, part, rev, total, appr_date, assy):
+    def add_to_dc_list_excel(self, proj, draw, part, rev, total, appr_date, assy, reason_val):
         try:
             wb = load_workbook(DC_LIST_FILE)
             ws = wb[proj] if proj in wb.sheetnames else wb.create_sheet(proj)
             last_row = ws.max_row + 1
             sl = 1 if last_row == 2 else (ws.cell(row=last_row-1, column=1).value or 0) + 1
             
-            ws.append([sl, draw, part, rev, total, appr_date, assy, "", "", "", "", ""])
+            # Insert into column M (13)
+            row_data = [sl, draw, part, rev, total, appr_date, assy, "", "", "", "", "", reason_val]
+            ws.append(row_data)
             
-            # Terapkan Alignment mengikut arahan
-            align_center = Alignment(horizontal='center', vertical='center')
-            align_left = Alignment(horizontal='left', vertical='center')
-            left_cols = [2, 3, 12] # Drawing Name, Drawing Number, Form ID
-
-            for col in range(1, 13):
-                cell = ws.cell(row=last_row, column=col)
-                if col in left_cols:
-                    cell.alignment = align_left
-                else:
-                    cell.alignment = align_center
-
-            wb.save(DC_LIST_FILE); wb.close()
+            wb.save(DC_LIST_FILE)
+            wb.close()
         except: pass
 
+    # =========================================================================
+    # TAB 2: SEARCH PDF LOGIC (DARI KOD 1 ASAL)
+    # =========================================================================
     def search_pdf_thread(self):
         part_no = self.pdf_search_ent.get().strip().upper()
         if not part_no: return
@@ -1018,7 +1009,7 @@ class IntegratedApp(ctk.CTk):
                 for r in raw_rows:
                     if r is None or not r[1]: continue
                     r_list = list(r)
-                    while len(r_list) < 13: r_list.append(None)
+                    while len(r_list) < 14: r_list.append("")
                     rows.append(r_list)
                 
                 unissued_groups = {} 
@@ -1083,23 +1074,68 @@ class IntegratedApp(ctk.CTk):
             ctk.CTkLabel(h, text=text, text_color="white", font=("Segoe UI", 12, "bold")).place(relx=relx, rely=0.5, anchor="w")
 
     def draw_hannan_group_row(self, parent, proj, label_text, items, st, color, form_id=None):
-        g_frame = ctk.CTkFrame(parent, fg_color="white", height=50, border_width=1, border_color="#EAEDED")
-        g_frame.pack(fill="x", pady=1)
+        correction_note = None
+        for item in items:
+            if len(item) > 13 and item[13] and str(item[13]).strip():
+                correction_note = str(item[13]).strip()
+                break
 
-        ctk.CTkLabel(g_frame, text=label_text, font=("Segoe UI", 12, "bold"), text_color="#2C3E50").place(relx=0.05, rely=0.5, anchor="w")
-        ctk.CTkLabel(g_frame, text=f"({len(items)} drawings)", font=("Segoe UI", 11), text_color="gray").place(relx=0.45, rely=0.5, anchor="w")
-
-        lbl = ctk.CTkLabel(g_frame, text=st, text_color="white", font=("Segoe UI", 11, "bold"), fg_color=color, width=85, corner_radius=4)
-        lbl.place(relx=0.92, rely=0.5, anchor="w")
-
-        btn_view = ctk.CTkButton(g_frame, text="VIEW LIST", width=80, height=28, font=("Segoe UI", 10, "bold"), 
-                                 fg_color="#34495E", command=lambda l=label_text, i=items, fid=form_id: self.show_list_popup(l, i, fid))
-        btn_view.place(relx=0.84, rely=0.5, anchor="e")
-
-        if st == "READY":
-            btn_issue = ctk.CTkButton(g_frame, text="ISSUE", width=70, height=28, font=("Segoe UI", 10, "bold"), 
+        if correction_note and st == "READY":
+            # REKA BENTUK KHAS UNTUK CORRECTION RETURNED OLEH DC
+            lines = correction_note.split('\n')
+            formatted_lines = []
+            for line in lines:
+                if line.strip():
+                    if not line.strip().startswith('-'):
+                        formatted_lines.append("- " + line.strip())
+                    else:
+                        formatted_lines.append(line.strip())
+            
+            final_note = "DC Correction:\n" + "\n".join(formatted_lines)
+            
+            g_frame = ctk.CTkFrame(parent, fg_color="#FDEDEC", border_width=1, border_color="#E6B0AA")
+            g_frame.pack(fill="x", pady=2)
+            
+            top_f = ctk.CTkFrame(g_frame, fg_color="transparent")
+            top_f.pack(fill="x", padx=10, pady=(10, 5))
+            
+            ctk.CTkLabel(top_f, text=label_text, font=("Segoe UI", 12, "bold"), text_color="#2C3E50").pack(side="left", padx=5)
+            ctk.CTkLabel(top_f, text=f"({len(items)} drawings)", font=("Segoe UI", 11), text_color="gray").pack(side="left", padx=5)
+            
+            lbl = ctk.CTkLabel(top_f, text="RETURNED", text_color="white", font=("Segoe UI", 11, "bold"), fg_color="#E74C3C", width=85, corner_radius=4)
+            lbl.pack(side="right", padx=10)
+            
+            btn_view = ctk.CTkButton(top_f, text="VIEW LIST", width=80, height=28, font=("Segoe UI", 10, "bold"), 
+                                     fg_color="#34495E", command=lambda l=label_text, i=items, fid=form_id: self.show_list_popup(l, i, fid))
+            btn_view.pack(side="right", padx=5)
+            
+            btn_issue = ctk.CTkButton(top_f, text="RE-ISSUE", width=70, height=28, font=("Segoe UI", 10, "bold"), 
                                       fg_color="#27AE60", command=lambda p=proj, a=label_text: self.create_issue_action(p, a))
-            btn_issue.place(relx=0.76, rely=0.5, anchor="e")
+            btn_issue.pack(side="right", padx=5)
+            
+            bot_f = ctk.CTkFrame(g_frame, fg_color="transparent")
+            bot_f.pack(fill="x", padx=15, pady=(0, 10))
+            
+            ctk.CTkLabel(bot_f, text=final_note, font=("Segoe UI", 11, "bold"), text_color="#C0392B", justify="left").pack(side="left")
+        else:
+            # PAPARAN NORMAL SEPERTI KOD ASAL ANDA
+            g_frame = ctk.CTkFrame(parent, fg_color="white", height=50, border_width=1, border_color="#EAEDED")
+            g_frame.pack(fill="x", pady=1)
+
+            ctk.CTkLabel(g_frame, text=label_text, font=("Segoe UI", 12, "bold"), text_color="#2C3E50").place(relx=0.05, rely=0.5, anchor="w")
+            ctk.CTkLabel(g_frame, text=f"({len(items)} drawings)", font=("Segoe UI", 11), text_color="gray").place(relx=0.45, rely=0.5, anchor="w")
+
+            lbl = ctk.CTkLabel(g_frame, text=st, text_color="white", font=("Segoe UI", 11, "bold"), fg_color=color, width=85, corner_radius=4)
+            lbl.place(relx=0.92, rely=0.5, anchor="w")
+
+            btn_view = ctk.CTkButton(g_frame, text="VIEW LIST", width=80, height=28, font=("Segoe UI", 10, "bold"), 
+                                     fg_color="#34495E", command=lambda l=label_text, i=items, fid=form_id: self.show_list_popup(l, i, fid))
+            btn_view.place(relx=0.84, rely=0.5, anchor="e")
+
+            if st == "READY":
+                btn_issue = ctk.CTkButton(g_frame, text="ISSUE", width=70, height=28, font=("Segoe UI", 10, "bold"), 
+                                          fg_color="#27AE60", command=lambda p=proj, a=label_text: self.create_issue_action(p, a))
+                btn_issue.place(relx=0.76, rely=0.5, anchor="e")
 
     def show_list_popup(self, label, items, form_id=None):
         pop = ctk.CTkToplevel(self)
@@ -1137,18 +1173,13 @@ class IntegratedApp(ctk.CTk):
             ws = wb[proj]
             count = 0
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            align_center = Alignment(horizontal='center', vertical='center')
-
             for r in range(2, ws.max_row + 1):
                 if ws.cell(row=r, column=2).value and not ws.cell(row=r, column=8).value:
                     if assy_filter and str(ws.cell(row=r, column=7).value) != str(assy_filter):
                         continue
-                    
                     ws.cell(row=r, column=8).value = "Hannan"
-                    ws.cell(row=r, column=8).alignment = align_center
                     ws.cell(row=r, column=9).value = now
-                    ws.cell(row=r, column=9).alignment = align_center
-                    
+                    ws.cell(row=r, column=14).value = "" # Clear DC Correction bila re-issue
                     count += 1
             if count > 0:
                 wb.save(DC_LIST_FILE)
@@ -1207,7 +1238,47 @@ class IntegratedApp(ctk.CTk):
         btn_f.pack(side="right", padx=20)
         
         ctk.CTkButton(btn_f, text="VIEW LIST", width=120, fg_color="#34495E", font=("Segoe UI", 12, "bold"), command=lambda k=key, i=items: self.view_details_tasya(k, i)).pack(side="left", padx=5)
+        
+        # BUTANG CORRECTION UTK DC
+        ctk.CTkButton(btn_f, text="CORRECTION", width=100, fg_color="#E67E22", font=("Segoe UI", 12, "bold"), command=lambda k=key, i=items: self.request_correction_popup(k, i)).pack(side="left", padx=5)
+
         ctk.CTkButton(btn_f, text="RECEIVE", width=100, fg_color="#27AE60", font=("Segoe UI", 12, "bold"), command=lambda k=key, i=items: self.receive_final_action(k, i)).pack(side="left", padx=5)
+
+    def request_correction_popup(self, key, items):
+        pop = ctk.CTkToplevel(self)
+        pop.title("Request Correction")
+        pop.geometry("500x350")
+        pop.attributes("-topmost", True)
+        
+        ctk.CTkLabel(pop, text=f"Correction note for {key[0]} - {key[1]}:", font=("Segoe UI", 14, "bold")).pack(pady=15)
+        
+        txt_correct = ctk.CTkTextbox(pop, height=150, width=400, font=("Segoe UI", 12))
+        txt_correct.pack(padx=20, pady=10)
+        txt_correct.insert("1.0", "- ") # Pre-fill bullet point
+        
+        ctk.CTkButton(pop, text="SUBMIT CORRECTION", fg_color=COLOR_DANGER, height=45, font=("Segoe UI", 14, "bold"),
+                      command=lambda: self.submit_correction(key, txt_correct.get("1.0", "end-1c").strip(), pop)).pack(pady=15)
+
+    def submit_correction(self, key, reason, pop):
+        if not reason or reason == "-":
+            messagebox.showerror("Error", "Sila berikan sebab correction.")
+            return
+            
+        proj, assy, iss_date = key
+        try:
+            wb = load_workbook(DC_LIST_FILE)
+            ws = wb[proj]
+            for r in range(2, ws.max_row + 1):
+                if str(ws.cell(row=r, column=9).value) == str(iss_date) and str(ws.cell(row=r, column=7).value) == str(assy):
+                    ws.cell(row=r, column=8).value = ""
+                    ws.cell(row=r, column=9).value = ""
+                    ws.cell(row=r, column=14).value = reason # Col N untuk nota correction
+            wb.save(DC_LIST_FILE)
+            pop.destroy()
+            messagebox.showinfo("Success", "Correction requested to Engineer.")
+            self.refresh_tasya_inbox()
+        except Exception as e:
+            messagebox.showerror("Error", f"Server Busy: {e}")
 
     def view_details_tasya(self, key, items):
         proj, assy, _ = key
@@ -1242,22 +1313,11 @@ class IntegratedApp(ctk.CTk):
         try:
             wb = load_workbook(DC_LIST_FILE)
             ws = wb[proj]
-            
-            align_center = Alignment(horizontal='center', vertical='center') 
-            align_left = Alignment(horizontal='left', vertical='center') 
-            
             for r in range(2, ws.max_row + 1):
                 if str(ws.cell(row=r, column=9).value) == str(iss_date) and str(ws.cell(row=r, column=7).value) == str(assy):
-                    
                     ws.cell(row=r, column=10).value = "Tasya"
-                    ws.cell(row=r, column=10).alignment = align_center
-                    
                     ws.cell(row=r, column=11).value = rec_time
-                    ws.cell(row=r, column=11).alignment = align_center
-                    
                     ws.cell(row=r, column=12).value = f_id
-                    ws.cell(row=r, column=12).alignment = align_left
-                    
             wb.save(DC_LIST_FILE)
             
             self.generate_transmittal_pdf(proj, assy, items, iss_date, rec_time, f_id)
@@ -1271,7 +1331,8 @@ class IntegratedApp(ctk.CTk):
         if not os.path.exists(folder): os.makedirs(folder)
         path = os.path.join(folder, f"{f_id}.pdf")
         
-        pdf = TransmittalPDF()
+        # PENGGUNAAN PDF LANDSCAPE
+        pdf = TransmittalPDF(orientation='L')
         pdf.add_page()
         
         pdf.set_font("Arial", "B", 10)
@@ -1279,14 +1340,18 @@ class IntegratedApp(ctk.CTk):
         pdf.cell(0, 8, f"DATE: {datetime.now().strftime('%d/%m/%Y')}", ln=1)
         pdf.ln(5)
         
-        header = ["Sl", "Drawing Number", "Drawing Name", "Rev", "Total", "Approved"]
+        # TABLE HEADER DENGAN REMARKS
+        header = ["Sl", "Drawing Number", "Drawing Name", "Rev", "Total", "Approved", "Remarks"]
         data = []
         for i, d in enumerate(sorted(items, key=lambda x: str(x[2])), 1):
             appr_val = d[5]
             if hasattr(appr_val, 'strftime'): appr_str = appr_val.strftime('%Y-%m-%d')
             elif appr_val: appr_str = str(appr_val).split()[0]
             else: appr_str = ""
-            data.append([str(i), str(d[2]), str(d[1])[:40], str(d[3]), str(d[4]), appr_str])
+            
+            # Ambil nilai Reason (Column M / index 12) jika ada
+            rem_val = str(d[12]) if len(d) > 12 and d[12] else "-"
+            data.append([str(i), str(d[2]), str(d[1])[:40], str(d[3]), str(d[4]), appr_str, rem_val[:65]])
         
         pdf.generate_table(header, data, {"proj": proj, "assy": assy})
         
@@ -1299,7 +1364,6 @@ class IntegratedApp(ctk.CTk):
         pdf.cell(95, 7, f"Date: {iss_t}", 0, 0); pdf.cell(95, 7, f"Date: {rec_t}", 0, 1)
         
         pdf.output(path)
-
 
 if __name__ == "__main__":
     app = IntegratedApp()
