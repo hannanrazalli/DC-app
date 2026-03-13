@@ -64,7 +64,7 @@ for k, v in PROJ_MAP.items():
         REVERSE_PROJ_MAP[v] = k
 
 ASSEMBLIES = ["Bogie", "Underframe", "Cabin", "Engine Hood", "Radiator Hood", "Muffler", "Gear Case", "Water Tank", "Battery Box", "Fuel Tank", "Sandbox"]
-ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno", "Satyanarayana"]
+ENGINEER_LIST = ["Baskaran", "Sathish", "Harrison", "Hannan", "Gokul", "Vimal", "Ram", "Vishwa", "Bruno", "Satyanarayana, Rakshantha"]
 REMARKS_LIST = ["New", "Revised", "Re-Release", "-"]
 # BATCH_LIST dari kod anda
 BATCH_LIST = ["-", "1", "2", "N", "R"]
